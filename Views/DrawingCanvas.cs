@@ -1,0 +1,2579 @@
+using Microsoft.Maui.Controls;
+using SkiaSharp;
+using SkiaSharp.Views.Maui;
+using System.Collections.ObjectModel;
+using System.Diagnostics;
+using SkiaSharp.Views.Maui.Controls;
+using PdfiumViewer;
+using System.Drawing;
+using SizeF = System.Drawing.SizeF;
+using Microsoft.Maui.Graphics;
+using System.Runtime.InteropServices;
+using AnkiPlus_MAUI.Drawing;
+
+namespace AnkiPlus_MAUI.Views
+{
+    public class DrawingCanvas : SKCanvasView, IDisposable
+    {
+        [DllImport("user32.dll")]
+        private static extern short GetAsyncKeyState(int vKey);
+
+        private const int VK_CONTROL = 0x11;
+        private const float BASE_CANVAS_WIDTH = 800f;
+        private const float MIN_SCALE = 0.5f;
+        private const float MAX_SCALE = 3.0f;
+        private const float HIGH_DPI = 100f;
+        private const float LOW_DPI = 50f;
+        private const float SELECTION_MARGIN = 20f;
+        private const float SELECTION_MARGIN_SCALE_FACTOR = 1.5f;
+        private const float CONTEXT_MENU_WIDTH = 200;
+        private const float CONTEXT_MENU_HEIGHT = 150;
+        private const float CONTEXT_MENU_ITEM_HEIGHT = 40;
+        private const float COLOR_BOX_SIZE = 30;
+        private const float COLOR_BOX_MARGIN = 5;
+        private const float STROKE_WIDTH_BOX_SIZE = 30;
+        private const float STROKE_WIDTH_BOX_MARGIN = 5;
+        private DateTime _rightClickStartTime;
+        private const int LONG_PRESS_DURATION = 500;
+        private bool _isRightDragging = false;
+        private SKPoint _dragStartPoint;
+        private const int SHAPE_RECOGNITION_DELAY = 300;
+        private bool _isShapeRecognitionActive = false;
+        private SKPath _previewPath;
+
+        private SKPaint _penPaint;
+        private SKPaint _markerPaint;
+        private SKPaint _eraserPaint;
+        private SKPaint _currentPaint;
+        private SKPath _currentPath;
+        private readonly ObservableCollection<DrawingStroke> _drawingElements;
+        private DrawingStroke _selectedElement;
+        private DrawingTool _currentTool;
+        private SKPoint _lastPoint;
+        private bool _isDrawing;
+        private DateTime _lastMoveTime;
+        private SKBitmap _backgroundImage;
+        private PdfDocument _pdfDocument;
+        private int _currentPage;
+        private Stream _pdfStream;
+        private List<SKBitmap> _pdfPages;
+        private SizeF _pageSize;
+        private float _totalHeight;
+        private float _currentScale = 1.0f;
+        private SKMatrix _transformMatrix = SKMatrix.CreateIdentity();
+        private SKPoint _lastTouchPoint;
+        private bool _isPanning;
+        private ScrollView _parentScrollView;
+        private List<PageCanvas> _pageCanvases;
+        private bool _isMovingElement;
+        private PageCanvas _selectedPageCanvas;
+        private SKPoint _moveStartPoint;
+        private Dictionary<int, SKBitmap> _highQualityPages;
+        private HashSet<int> _loadingPages;
+        private int _currentVisiblePage;
+
+        // メモリ管理用の定数
+        private const int VISIBLE_PAGE_BUFFER = 1;
+        private const int MAX_CACHED_PAGES = 3;
+        private const int CACHE_CLEANUP_THRESHOLD = 5;
+        private const float SCALE_THRESHOLD = 1.5f;
+
+        // 保存用のデータ構造
+        public class DrawingData
+        {
+            public string PdfFilePath { get; set; }
+            public List<PageDrawingData> Pages { get; set; } = new List<PageDrawingData>();
+            public Dictionary<string, float> PenSettings { get; set; } = new Dictionary<string, float>();
+            public Dictionary<string, float> MarkerSettings { get; set; } = new Dictionary<string, float>();
+        }
+
+        public class PageDrawingData
+        {
+            public int PageIndex { get; set; }
+            public List<DrawingStrokeData> DrawingElements { get; set; } = new List<DrawingStrokeData>();
+        }
+
+        public class DrawingStrokeData
+        {
+            public List<SKPoint> Points { get; set; }
+            [System.Text.Json.Serialization.JsonIgnore]
+            public SKColor Color { get; set; }
+            public float StrokeWidth { get; set; }
+            public SKPaintStyle Style { get; set; }
+            public float Transparency { get; set; }
+            public DrawingTool Tool { get; set; }
+            public bool IsShape { get; set; }
+            public ShapeType ShapeType { get; set; }
+            
+            // 図形固有の情報
+            public SKPoint Center { get; set; }  // 円の中心
+            public float Radius { get; set; }    // 円の半径
+            public SKPoint StartPoint { get; set; }  // 直線の始点
+            public SKPoint EndPoint { get; set; }    // 直線の終点
+            public List<SKPoint> Vertices { get; set; }  // 三角形や四角形の頂点
+
+            // 色情報をJSONにシリアライズするためのプロパティ
+            [System.Text.Json.Serialization.JsonPropertyName("Color")]
+            public uint ColorValue
+            {
+                get => BitConverter.ToUInt32(new byte[] { Color.Alpha, Color.Red, Color.Green, Color.Blue }, 0);
+                set
+                {
+                    var bytes = BitConverter.GetBytes(value);
+                    Color = new SKColor(bytes[1], bytes[2], bytes[3], bytes[0]);
+                }
+            }
+        }
+
+        public class PageCanvas
+        {
+            public SKBitmap PageBitmap { get; set; }
+            public float Width { get; set; }
+            public float Height { get; set; }
+            public float Y { get; set; }
+            public ObservableCollection<DrawingStroke> DrawingElements { get; set; } = new ObservableCollection<DrawingStroke>();
+            public SKPath CurrentPath { get; set; }
+            public bool IsDrawing { get; set; }
+            public SKPoint LastPoint { get; set; }
+            public bool IsHighQuality { get; set; }
+            public int PageIndex { get; set; }
+            public bool NeedsUpdate { get; set; }
+
+            public void Dispose()
+            {
+                PageBitmap?.Dispose();
+                PageBitmap = null;
+                CurrentPath?.Dispose();
+                CurrentPath = null;
+                foreach (var element in DrawingElements)
+                {
+                    element.Dispose();
+                }
+                DrawingElements.Clear();
+            }
+        }
+
+        private string _currentPdfPath;
+        private string _tempDirectory;
+        private const string PAGE_CACHE_DIR = "PageCache";
+        private const string DRAWING_DATA_FILE = "drawing_data.json";
+        private DateTime _lastAutoSaveTime = DateTime.MinValue;
+        private const int AUTO_SAVE_INTERVAL = 30000; // 30秒ごとに自動保存
+
+        // 元に戻す/やり直し用のスタック
+        private Stack<(int PageIndex, DrawingStroke Element)> _undoStack = new Stack<(int PageIndex, DrawingStroke Element)>();
+        private Stack<(int PageIndex, DrawingStroke Element)> _redoStack = new Stack<(int PageIndex, DrawingStroke Element)>();
+
+        private bool _lastClickWasRight = false;
+        private DateTime _lastRightClickTime = DateTime.MinValue;
+        private const double DOUBLE_CLICK_TIME = 800;
+
+        private SKPoint _lastRightClickPoint;
+        private bool _isShowingContextMenu;
+        private readonly Dictionary<string, SKColor> _colors = new Dictionary<string, SKColor>
+        {
+            { "黒", SKColors.Black },
+            { "白", SKColors.White },
+            { "赤", SKColors.Red },
+            { "青", SKColors.Blue },
+            { "緑", SKColors.Green },
+            { "黄", SKColors.Yellow },
+            { "オレンジ", SKColors.Orange }
+        };
+
+        private readonly Dictionary<string, float> _strokeWidths = new Dictionary<string, float>
+        {
+            { "極細", 0.5f },
+            { "細", 1.0f },
+            { "中", 2.0f },
+            { "太", 4.0f },
+            { "極太", 8.0f }
+        };
+
+        private readonly Dictionary<string, float> _markerWidths = new Dictionary<string, float>
+        {
+            { "細", 5.0f },
+            { "中", 10.0f },
+            { "太", 20.0f },
+            { "極太", 30.0f },
+            { "特大", 40.0f }
+        };
+
+        private readonly Dictionary<string, float> _transparencies = new Dictionary<string, float>
+        {
+            { "不透明", 1.0f },
+            { "半透明", 0.5f },
+            { "透明", 0.2f }
+        };
+
+        public enum ShapeType
+        {
+            None,
+            Line,
+            Rectangle,
+            Circle,
+            Triangle
+        }
+
+        public class DrawingStroke : IDisposable
+        {
+            public SKPath DrawingPath { get; private set; }
+            public SKPaint DrawingPaint { get; private set; }
+            public bool IsShape { get; set; }
+            public ShapeType ShapeType { get; set; }
+            public bool IsMoved { get; private set; }
+            private SKPath _originalPath;
+            private SKPath _movedPath;
+
+            public DrawingStroke(SKPath path, SKPaint paint)
+            {
+                DrawingPath = path;
+                DrawingPaint = paint;
+                IsShape = false;
+                ShapeType = ShapeType.None;
+                IsMoved = false;
+                _originalPath = new SKPath(path);
+                _movedPath = null;
+            }
+
+            public void UpdatePath(SKPath newPath)
+            {
+                DrawingPath?.Dispose();
+                DrawingPath = newPath;
+                IsMoved = true;
+                _movedPath = new SKPath(newPath);
+            }
+
+            public void RestoreOriginalPosition()
+            {
+                if (IsMoved && _originalPath != null)
+                {
+                    DrawingPath?.Dispose();
+                    DrawingPath = new SKPath(_originalPath);
+                    IsMoved = false;
+                    _movedPath = null;
+                }
+            }
+
+            public void RestoreMovedPosition()
+            {
+                if (IsMoved && _movedPath != null)
+                {
+                    DrawingPath?.Dispose();
+                    DrawingPath = new SKPath(_movedPath);
+                }
+            }
+
+            public void Dispose()
+            {
+                DrawingPath?.Dispose();
+                DrawingPaint?.Dispose();
+                _originalPath?.Dispose();
+                _movedPath?.Dispose();
+            }
+        }
+
+        private ShapeType RecognizeShape(SKPath path)
+        {
+            if (path == null) return ShapeType.None;
+
+            path.GetBounds(out var bounds);
+            var width = bounds.Width;
+            var height = bounds.Height;
+            var points = GetPointsFromPath(path);
+
+            if (points.Count < 2) return ShapeType.None;
+
+            // 直線の判定
+            if (IsLine(points))
+            {
+                return ShapeType.Line;
+            }
+
+            // 円の判定
+            if (IsCircle(points))
+            {
+                return ShapeType.Circle;
+            }
+
+            // 三角形の判定
+            if (IsTriangle(points))
+            {
+                return ShapeType.Triangle;
+            }
+
+            // 四角形の判定
+            if (IsRectangle(points))
+            {
+                return ShapeType.Rectangle;
+            }
+
+            return ShapeType.None;
+        }
+
+        private bool IsLine(List<SKPoint> points)
+        {
+            if (points.Count < 2) return false;
+
+            var firstPoint = points[0];
+            var lastPoint = points[points.Count - 1];
+            var lineLength = Distance(firstPoint, lastPoint);
+
+            // 各点が直線からどれだけ離れているかをチェック
+            float maxDeviation = 0;
+            foreach (var point in points)
+            {
+                var deviation = DistanceToLine(point, firstPoint, lastPoint);
+                maxDeviation = Math.Max(maxDeviation, deviation);
+            }
+
+            // 最大偏差が線の長さの10%以下なら直線と判定
+            return maxDeviation < lineLength * 0.1f;
+        }
+
+        private bool IsCircle(List<SKPoint> points)
+        {
+            if (points.Count < 4) return false;
+
+            var bounds = new SKRect();
+            foreach (var point in points)
+            {
+                var pointRect = new SKRect(point.X, point.Y, point.X, point.Y);
+                bounds.Union(pointRect);
+            }
+
+            var center = new SKPoint(bounds.MidX, bounds.MidY);
+            var radius = Math.Max(bounds.Width, bounds.Height) / 2;
+
+            // 各点が円周からどれだけ離れているかをチェック
+            float maxDeviation = 0;
+            foreach (var point in points)
+            {
+                var distance = Distance(point, center);
+                var deviation = Math.Abs(distance - radius);
+                maxDeviation = Math.Max(maxDeviation, deviation);
+            }
+
+            // 最大偏差が半径の30%以下なら円と判定
+            return maxDeviation < radius * 0.3f;
+        }
+
+        private bool IsTriangle(List<SKPoint> points)
+        {
+            if (points.Count < 3) return false;
+
+            // 3つの頂点を探す
+            var vertices = FindVertices(points, 3);
+            if (vertices.Count != 3) return false;
+
+            // 各辺を直線として判定
+            int validEdges = 0;
+            for (int i = 0; i < 3; i++)
+            {
+                var start = vertices[i];
+                var end = vertices[(i + 1) % 3];
+                var edgePoints = points.Where(p => IsPointOnLineSegment(p, start, end)).ToList();
+                
+                if (edgePoints.Count < 2) continue;
+                
+                // 辺の長さを計算
+                var edgeLength = Distance(start, end);
+                // 各点が辺からどれだけ離れているかをチェック
+                float maxDeviation = 0;
+                foreach (var point in edgePoints)
+                {
+                    var deviation = DistanceToLine(point, start, end);
+                    maxDeviation = Math.Max(maxDeviation, deviation);
+                }
+                
+                // 最大偏差が辺の長さの20%以下なら有効な辺と判定
+                if (maxDeviation <= edgeLength * 0.2f)
+                {
+                    validEdges++;
+                }
+            }
+
+            // 3辺のうち2辺以上が有効なら三角形と判定
+            return validEdges >= 2;
+        }
+
+        private bool IsRectangle(List<SKPoint> points)
+        {
+            if (points.Count < 4) return false;
+
+            // 4つの頂点を探す
+            var vertices = FindVertices(points, 4);
+            if (vertices.Count != 4) return false;
+
+            // 各辺を直線として判定
+            int validEdges = 0;
+            for (int i = 0; i < 4; i++)
+            {
+                var start = vertices[i];
+                var end = vertices[(i + 1) % 4];
+                var edgePoints = points.Where(p => IsPointOnLineSegment(p, start, end)).ToList();
+                
+                if (edgePoints.Count < 2) continue;
+                
+                // 辺の長さを計算
+                var edgeLength = Distance(start, end);
+                // 各点が辺からどれだけ離れているかをチェック
+                float maxDeviation = 0;
+                foreach (var point in edgePoints)
+                {
+                    var deviation = DistanceToLine(point, start, end);
+                    maxDeviation = Math.Max(maxDeviation, deviation);
+                }
+                
+                // 最大偏差が辺の長さの20%以下なら有効な辺と判定
+                if (maxDeviation <= edgeLength * 0.2f)
+                {
+                    validEdges++;
+                }
+            }
+
+            // 4辺のうち3辺以上が有効なら四角形と判定
+            return validEdges >= 3;
+        }
+
+        private bool IsPointOnLineSegment(SKPoint point, SKPoint start, SKPoint end)
+        {
+            // 点が線分のバウンディングボックス内にあるかチェック
+            var minX = Math.Min(start.X, end.X);
+            var maxX = Math.Max(start.X, end.X);
+            var minY = Math.Min(start.Y, end.Y);
+            var maxY = Math.Max(start.Y, end.Y);
+
+            if (point.X < minX || point.X > maxX || point.Y < minY || point.Y > maxY)
+            {
+                return false;
+            }
+
+            // 点から線分までの距離を計算
+            var distance = DistanceToLine(point, start, end);
+            var lineLength = Distance(start, end);
+
+            // 距離が線分の長さの30%以下なら線分上にあるとみなす
+            return distance <= lineLength * 0.3f;
+        }
+
+        private bool IsStar(List<SKPoint> points)
+        {
+            if (points.Count < 5) return false;
+
+            // 5つの頂点を探す
+            var vertices = FindVertices(points, 5);
+            if (vertices.Count != 5) return false;
+
+            // 星の中心を計算
+            var center = new SKPoint(
+                vertices.Average(v => v.X),
+                vertices.Average(v => v.Y)
+            );
+
+            // 各点が星の辺からどれだけ離れているかをチェック
+            float maxDeviation = 0;
+            foreach (var point in points)
+            {
+                var minDistance = float.MaxValue;
+                for (int i = 0; i < 5; i++)
+                {
+                    var distance = DistanceToLine(point, vertices[i], center);
+                    minDistance = Math.Min(minDistance, distance);
+                }
+                maxDeviation = Math.Max(maxDeviation, minDistance);
+            }
+
+            // 最大偏差が星の辺の長さの平均の25%以下なら星と判定（15%から25%に緩和）
+            var avgSideLength = vertices.Average(v => Distance(v, center));
+            return maxDeviation < avgSideLength * 0.25f;
+        }
+
+        private List<SKPoint> FindVertices(List<SKPoint> points, int count)
+        {
+            var vertices = new List<SKPoint>();
+            var center = new SKPoint(
+                points.Average(p => p.X),
+                points.Average(p => p.Y)
+            );
+
+            // 中心からの角度でソート
+            var sortedPoints = points.OrderBy(p => Math.Atan2(p.Y - center.Y, p.X - center.X)).ToList();
+
+            // 頂点を選択
+            for (int i = 0; i < count; i++)
+            {
+                var index = i * sortedPoints.Count / count;
+                vertices.Add(sortedPoints[index]);
+            }
+
+            return vertices;
+        }
+
+        private float Distance(SKPoint p1, SKPoint p2)
+        {
+            var dx = p2.X - p1.X;
+            var dy = p2.Y - p1.Y;
+            return (float)Math.Sqrt(dx * dx + dy * dy);
+        }
+
+        private float DistanceToLine(SKPoint point, SKPoint lineStart, SKPoint lineEnd)
+        {
+            var lineLength = Distance(lineStart, lineEnd);
+            if (lineLength == 0) return Distance(point, lineStart);
+
+            var t = ((point.X - lineStart.X) * (lineEnd.X - lineStart.X) + 
+                    (point.Y - lineStart.Y) * (lineEnd.Y - lineStart.Y)) / (lineLength * lineLength);
+
+            t = Math.Max(0, Math.Min(1, t));
+
+            var projection = new SKPoint(
+                lineStart.X + t * (lineEnd.X - lineStart.X),
+                lineStart.Y + t * (lineEnd.Y - lineStart.Y)
+            );
+
+            return Distance(point, projection);
+        }
+
+        private SKPath CreateCorrectedPath(SKPath originalPath, ShapeType shapeType)
+        {
+            var bounds = new SKRect();
+            originalPath.GetBounds(out bounds);
+
+            var center = new SKPoint(bounds.MidX, bounds.MidY);
+            var width = bounds.Width;
+            var height = bounds.Height;
+            var size = Math.Max(width, height);
+
+            // 最小サイズの制限を緩和
+            var minSize = 5.0f; // 最小サイズを5ピクセルに設定
+            if (size < minSize)
+            {
+                size = minSize;
+                width = Math.Max(width, minSize);
+                height = Math.Max(height, minSize);
+            }
+
+            var correctedPath = new SKPath();
+
+            switch (shapeType)
+            {
+                case ShapeType.Line:
+                    // 開始点と終了点を直接結ぶ
+                    var points = GetPointsFromPath(originalPath);
+                    if (points.Count >= 2)
+                    {
+                        correctedPath.MoveTo(points[0]);
+                        correctedPath.LineTo(points[points.Count - 1]);
+                    }
+                    break;
+
+                case ShapeType.Circle:
+                    // 円の中心と半径を計算
+                    var radius = size / 2;
+                    correctedPath.AddCircle(center.X, center.Y, radius);
+                    break;
+
+                case ShapeType.Triangle:
+                    // 三角形の頂点を計算
+                    var trianglePoints = new[]
+                    {
+                        new SKPoint(center.X, bounds.Top),
+                        new SKPoint(bounds.Right, bounds.Bottom),
+                        new SKPoint(bounds.Left, bounds.Bottom)
+                    };
+                    correctedPath.MoveTo(trianglePoints[0]);
+                    correctedPath.LineTo(trianglePoints[1]);
+                    correctedPath.LineTo(trianglePoints[2]);
+                    correctedPath.Close();
+                    break;
+
+                case ShapeType.Rectangle:
+                    // 四角形の頂点を計算
+                    var rect = new SKRect(
+                        center.X - width / 2,
+                        center.Y - height / 2,
+                        center.X + width / 2,
+                        center.Y + height / 2
+                    );
+                    correctedPath.AddRect(rect);
+                    break;
+            }
+
+            return correctedPath;
+        }
+
+        private async Task ShowColorPicker()
+        {
+            var result = await Application.Current.MainPage.DisplayActionSheet("色を選択", "キャンセル", null, _colors.Keys.ToArray());
+            if (result != "キャンセル" && result != null && _colors.TryGetValue(result, out var color))
+            {
+                _currentPaint.Color = color;
+                InvalidateSurface();
+            }
+        }
+
+        public ScrollView ParentScrollView
+        {
+            get => _parentScrollView;
+            set
+            {
+                if (_parentScrollView != null)
+                {
+                    _parentScrollView.Scrolled -= OnScrollViewScrolled;
+                }
+                
+                _parentScrollView = value;
+                
+                if (_parentScrollView != null)
+                {
+                    _parentScrollView.Scrolled += OnScrollViewScrolled;
+                    UpdateScrollViewHeight();
+                    
+                    // ScrollViewが設定されたら、現在の表示範囲のページを高画質で読み込む
+                    if (_pdfDocument != null)
+                    {
+                        MainThread.BeginInvokeOnMainThread(async () =>
+                        {
+                            await UpdateVisiblePagesAsync(_parentScrollView.ScrollY);
+                        });
+                    }
+                }
+            }
+        }
+
+        private async void OnScrollViewScrolled(object sender, ScrolledEventArgs e)
+        {
+            Debug.WriteLine($"ScrollView scrolled to: {e.ScrollY}");
+            await UpdateVisiblePagesAsync(e.ScrollY);
+        }
+
+        private void UpdateScrollViewHeight()
+        {
+            if (_parentScrollView != null)
+            {
+                try
+                {
+                    if (_parentScrollView.Content != null)
+                    {
+                        _parentScrollView.Content.HeightRequest = _totalHeight;
+                        Debug.WriteLine($"Setting ScrollView content height to: {_totalHeight}");
+                    }
+                    else
+                    {
+                        Debug.WriteLine("ScrollView.Content is null");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"Error updating scroll view height: {ex.Message}");
+                }
+            }
+            else
+            {
+                Debug.WriteLine("ParentScrollView is null");
+            }
+        }
+
+        public DrawingCanvas()
+        {
+            _drawingElements = new ObservableCollection<DrawingStroke>();
+            _penPaint = new SKPaint
+            {
+                Style = SKPaintStyle.Stroke,
+                Color = SKColors.Black,
+                StrokeWidth = 2.0f,
+                IsAntialias = true
+            };
+            _markerPaint = new SKPaint
+            {
+                Style = SKPaintStyle.Stroke,
+                Color = SKColors.Yellow.WithAlpha(128),
+                StrokeWidth = 10.0f,
+                IsAntialias = true,
+                BlendMode = SKBlendMode.SrcOver
+            };
+            _eraserPaint = new SKPaint
+            {
+                Style = SKPaintStyle.Stroke,
+                Color = SKColors.Transparent,
+                StrokeWidth = 20.0f,
+                IsAntialias = true,
+                BlendMode = SKBlendMode.Clear
+            };
+            _currentPaint = _penPaint;
+            EnableTouchEvents = true;
+            IgnorePixelScaling = true;
+            _pdfPages = new List<SKBitmap>();
+            _pageCanvases = new List<PageCanvas>();
+            _totalHeight = 1000;
+            _highQualityPages = new Dictionary<int, SKBitmap>();
+            _loadingPages = new HashSet<int>();
+        }
+
+        private bool IsPointNearPath(SKPath path, SKPoint point, float margin)
+        {
+            // パスのバウンディングボックスを取得
+            path.GetBounds(out var bounds);
+            
+            // ズームレベルに応じてマージンを調整
+            var scaledMargin = margin / (_currentScale * SELECTION_MARGIN_SCALE_FACTOR);
+            
+            // マージンを含めた拡大バウンディングボックス
+            var expandedBounds = new SKRect(
+                bounds.Left - scaledMargin,
+                bounds.Top - scaledMargin,
+                bounds.Right + scaledMargin,
+                bounds.Bottom + scaledMargin
+            );
+
+            // まず拡大バウンディングボックスでの判定
+            if (!expandedBounds.Contains(point))
+            {
+                return false;
+            }
+
+            // パスに沿って点との距離を計算
+            using (var measure = new SKPathMeasure(path))
+            {
+                float length = measure.Length;
+                float step = 1.0f; // 1ピクセルごとにチェック
+                
+                for (float distance = 0; distance < length; distance += step)
+                {
+                    measure.GetPosition(distance, out var pathPoint);
+                    float dx = point.X - pathPoint.X;
+                    float dy = point.Y - pathPoint.Y;
+                    float pointDistance = (float)Math.Sqrt(dx * dx + dy * dy);
+                    
+                    if (pointDistance <= scaledMargin)
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        protected override void OnTouch(SKTouchEventArgs e)
+        {
+            bool isCtrlPressed = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+            bool isRightClick = e.MouseButton == SKMouseButton.Right;
+
+            Debug.WriteLine($"Touch Event - Action: {e.ActionType}, Location: ({e.Location.X}, {e.Location.Y}), CtrlPressed: {isCtrlPressed}");
+
+            // Ctrlキーが押されていない場合、ホイールイベントは処理しない
+            if (e.ActionType == SKTouchAction.WheelChanged && !isCtrlPressed)
+            {
+                e.Handled = false;
+                return;
+            }
+
+            // タッチ位置をキャンバス座標系に変換
+            var info = CanvasSize;
+            var scale = Math.Min(info.Width / BASE_CANVAS_WIDTH, info.Height / (_totalHeight / _currentScale));
+            var centerX = (info.Width - (BASE_CANVAS_WIDTH * scale)) / 2;
+            var centerY = (info.Height - (_totalHeight * scale / _currentScale)) / 2;
+            var canvasX = (e.Location.X - centerX) / scale;
+            var canvasY = (e.Location.Y - centerY) / scale;
+            var transformedPoint = new SKPoint(canvasX, canvasY);
+
+            Debug.WriteLine($"Touch Transform - Scale: {scale}, CenterX: {centerX}, CenterY: {centerY}");
+            Debug.WriteLine($"Transformed Point - X: {transformedPoint.X}, Y: {transformedPoint.Y}");
+
+            // タッチされたページを特定
+            var pageCanvas = _pageCanvases.FirstOrDefault(p => 
+                canvasY >= p.Y / _currentScale && 
+                canvasY <= (p.Y + p.Height) / _currentScale);
+
+            if (pageCanvas == null)
+            {
+                Debug.WriteLine("No page canvas found for touch position");
+                e.Handled = false;
+                return;
+            }
+
+            Debug.WriteLine($"Found Page Canvas - PageIndex: {pageCanvas.PageIndex}, Y: {pageCanvas.Y}, Height: {pageCanvas.Height}");
+
+            // ページ内の相対座標を計算
+            var pageRelativePoint = new SKPoint(
+                transformedPoint.X,
+                transformedPoint.Y - pageCanvas.Y / _currentScale
+            );
+
+            Debug.WriteLine($"Page Relative Point - X: {pageRelativePoint.X}, Y: {pageRelativePoint.Y}");
+
+            switch (e.ActionType)
+            {
+                case SKTouchAction.Pressed:
+                    if (isRightClick)
+                    {
+                        _rightClickStartTime = DateTime.Now;
+                        _dragStartPoint = pageRelativePoint;
+                        _isRightDragging = true;
+
+                        // 右クリックで要素を選択
+                        _selectedElement = null;
+                        _selectedPageCanvas = null;
+                        foreach (var canvas in _pageCanvases)
+                        {
+                            foreach (var element in canvas.DrawingElements)
+                            {
+                                if (IsPointNearPath(element.DrawingPath, pageRelativePoint, SELECTION_MARGIN))
+                                {
+                                    _selectedElement = element;
+                                    _selectedPageCanvas = canvas;
+                                    break;
+                                }
+                            }
+                            if (_selectedElement != null) break;
+                        }
+
+                        // 要素が見つからなかった場合のみメニューを表示
+                        if (_selectedElement == null)
+                        {
+                            _lastRightClickPoint = e.Location;
+                            _isShowingContextMenu = true;
+                            InvalidateSurface();
+                        }
+                        e.Handled = true;
+                    }
+                    else if (_isShowingContextMenu)
+                    {
+                        // 太さ選択ボタンのチェック
+                        for (int i = 0; i < _strokeWidths.Count; i++)
+                        {
+                            if (IsPointInStrokeWidthBox(e.Location, i))
+                            {
+                                var width = _strokeWidths.Values.ElementAt(i);
+                                _currentPaint.StrokeWidth = width;
+                                _isShowingContextMenu = false;
+                                InvalidateSurface();
+                                e.Handled = true;
+                                return;
+                            }
+                        }
+
+                        // 透明度選択ボタンのチェック（マーカーツール時のみ）
+                        if (_currentTool == DrawingTool.Marker)
+                        {
+                            for (int i = 0; i < _transparencies.Count; i++)
+                            {
+                                if (IsPointInTransparencyBox(e.Location, i))
+                                {
+                                    var transparency = _transparencies.Values.ElementAt(i);
+                                    _currentPaint.Color = _currentPaint.Color.WithAlpha((byte)(transparency * 255));
+                                    _isShowingContextMenu = false;
+                                    InvalidateSurface();
+                                    e.Handled = true;
+                                    return;
+                                }
+                            }
+                        }
+
+                        // 色選択ボタンのチェック
+                        for (int i = 0; i < _colors.Count; i++)
+                        {
+                            if (IsPointInColorBox(e.Location, i))
+                            {
+                                var color = _colors.Values.ElementAt(i);
+                                if (_currentTool == DrawingTool.Marker)
+                                {
+                                    // マーカーの場合は現在の透明度を保持
+                                    _currentPaint.Color = color.WithAlpha(_currentPaint.Color.Alpha);
+                                }
+                                else
+                                {
+                                    _currentPaint.Color = color;
+                                }
+                                _isShowingContextMenu = false;
+                                InvalidateSurface();
+                                e.Handled = true;
+                                return;
+                            }
+                        }
+
+                        // メニュー外をクリックした場合はメニューを閉じる
+                        _isShowingContextMenu = false;
+                        InvalidateSurface();
+                        e.Handled = true;
+                    }
+                    else if (_currentTool == DrawingTool.Eraser)
+                    {
+                        // 消しゴムツールの処理
+                        pageCanvas.IsDrawing = true;
+                        pageCanvas.CurrentPath = new SKPath();
+                        pageCanvas.CurrentPath.MoveTo(pageRelativePoint);
+                        pageCanvas.LastPoint = pageRelativePoint;
+                        e.Handled = true;
+                    }
+                    else
+                    {
+                        // 通常の描画処理
+                        pageCanvas.IsDrawing = true;
+                        pageCanvas.CurrentPath = new SKPath();
+                        pageCanvas.CurrentPath.MoveTo(pageRelativePoint);
+                        pageCanvas.LastPoint = pageRelativePoint;
+                        _lastMoveTime = DateTime.Now;
+                        _isShapeRecognitionActive = false;
+                        _previewPath = null;
+                        e.Handled = true;
+                    }
+                    break;
+
+                case SKTouchAction.Moved:
+                    if (_isRightDragging && _selectedElement != null && _selectedPageCanvas != null)
+                    {
+                        // 要素の移動
+                        var deltaX = pageRelativePoint.X - _dragStartPoint.X;
+                        var deltaY = pageRelativePoint.Y - _dragStartPoint.Y;
+
+                        var newPath = new SKPath();
+                        _selectedElement.DrawingPath.GetBounds(out var bounds);
+                        newPath.AddPath(_selectedElement.DrawingPath);
+                        newPath.Transform(SKMatrix.CreateTranslation(deltaX, deltaY));
+
+                        _selectedElement.UpdatePath(newPath);
+                        _dragStartPoint = pageRelativePoint;
+                        InvalidateSurface();
+                        e.Handled = true;
+                    }
+                    else if (pageCanvas.IsDrawing)
+                    {
+                        // 通常の描画処理
+                        pageCanvas.CurrentPath.LineTo(pageRelativePoint);
+                        pageCanvas.LastPoint = pageRelativePoint;
+
+                        // 消しゴムツールの場合は即座に描画を更新
+                        if (_currentTool == DrawingTool.Eraser)
+                        {
+                            // 消しゴムのパスと交差する要素を削除
+                            var elementsToRemove = pageCanvas.DrawingElements
+                                .Where(element => PathsIntersect(pageCanvas.CurrentPath, element.DrawingPath))
+                                .ToList();
+
+                            foreach (var element in elementsToRemove)
+                            {
+                                pageCanvas.DrawingElements.Remove(element);
+                                _undoStack.Push((pageCanvas.PageIndex, element));
+                            }
+
+                            // 新しいパスを開始
+                            pageCanvas.CurrentPath = new SKPath();
+                            pageCanvas.CurrentPath.MoveTo(pageRelativePoint);
+                            InvalidateSurface();
+                        }
+                        else
+                        {
+                            // 一定時間動きが止まったら図形認識を開始
+                            var now = DateTime.Now;
+                            if ((now - _lastMoveTime).TotalMilliseconds > SHAPE_RECOGNITION_DELAY)
+                            {
+                                if (!_isShapeRecognitionActive)
+                                {
+                                    _isShapeRecognitionActive = true;
+                                    var shapeType = RecognizeShape(pageCanvas.CurrentPath);
+                                    if (shapeType != ShapeType.None)
+                                    {
+                                        _previewPath = CreateCorrectedPath(pageCanvas.CurrentPath, shapeType);
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                _isShapeRecognitionActive = false;
+                                _previewPath = null;
+                            }
+                        }
+
+                        _lastMoveTime = DateTime.Now;
+                        InvalidateSurface();
+                        e.Handled = true;
+                    }
+                    break;
+
+                case SKTouchAction.Released:
+                    if (isRightClick)
+                    {
+                        var pressDuration = (DateTime.Now - _rightClickStartTime).TotalMilliseconds;
+                        if (pressDuration < LONG_PRESS_DURATION)
+                        {
+                            // 短い右クリック（通常の右クリック）
+                            var now = DateTime.Now;
+                            if (_lastClickWasRight && (now - _lastRightClickTime).TotalMilliseconds < DOUBLE_CLICK_TIME)
+                            {
+                                // 右ダブルクリックの処理
+                                if (_selectedElement != null && _selectedPageCanvas != null)
+                                {
+                                    _selectedPageCanvas.DrawingElements.Remove(_selectedElement);
+                                    _undoStack.Push((_selectedPageCanvas.PageIndex, _selectedElement));
+                                    _selectedElement = null;
+                                    _selectedPageCanvas = null;
+                                    InvalidateSurface();
+                                }
+                            }
+                            _lastClickWasRight = true;
+                            _lastRightClickTime = now;
+                        }
+                        _isRightDragging = false;
+                        e.Handled = true;
+                    }
+                    else if (pageCanvas.IsDrawing)
+                    {
+                        if (_currentTool != DrawingTool.Eraser)
+                        {
+                            // 図形認識が有効な場合は補正されたパスを使用
+                            var finalPath = _previewPath ?? pageCanvas.CurrentPath;
+                            var element = new DrawingStroke(finalPath, _currentPaint.Clone());
+                            
+                            // 図形認識が有効な場合は図形としてマーク
+                            if (_previewPath != null)
+                            {
+                                var shapeType = RecognizeShape(pageCanvas.CurrentPath);
+                                element.IsShape = true;
+                                element.ShapeType = shapeType;
+                            }
+                            
+                            pageCanvas.DrawingElements.Add(element);
+                            _undoStack.Push((pageCanvas.PageIndex, element));
+                            _redoStack.Clear();
+
+                            // 描画データを保存
+                            _ = SaveDrawingDataAsync();
+                        }
+                        pageCanvas.IsDrawing = false;
+                        _isShapeRecognitionActive = false;
+                        _previewPath = null;
+                        InvalidateSurface();
+                        e.Handled = true;
+                    }
+
+                    // タッチ操作後に自動保存をチェック
+                    _ = AutoSaveIfNeeded();
+                    break;
+
+                case SKTouchAction.WheelChanged:
+                    if (isCtrlPressed && _parentScrollView != null)
+                    {
+                        var zoomFactor = e.WheelDelta > 0 ? 1.1f : 0.9f;
+                        var newScale = _currentScale * zoomFactor;
+                        if (newScale >= MIN_SCALE && newScale <= MAX_SCALE)
+                        {
+                            Debug.WriteLine($"Zoom Change - Old Scale: {_currentScale}, New Scale: {newScale}, Zoom Factor: {zoomFactor}");
+
+                            // ズーム前の状態を保存
+                            var oldScale = _currentScale;
+                            var oldHeight = _totalHeight;
+                            var viewportHeight = _parentScrollView.Height;
+                            var oldScrollY = _parentScrollView.ScrollY;
+                            var mouseY = e.Location.Y;
+
+                            Debug.WriteLine($"Zoom State - Old Height: {oldHeight}, Viewport Height: {viewportHeight}, Old ScrollY: {oldScrollY}, MouseY: {mouseY}");
+
+                            // マウス位置のキャンバス上の相対位置を計算
+                            var pointY = oldScrollY + mouseY;
+                            var relativeY = pointY / oldHeight;
+
+                            Debug.WriteLine($"Mouse Position - PointY: {pointY}, RelativeY: {relativeY}");
+
+                            // スケールを更新
+                            _currentScale = newScale;
+                            
+                            // ページキャンバスの更新を遅延させる
+                            MainThread.BeginInvokeOnMainThread(async () =>
+                            {
+                                await Task.Delay(50); // 50msの遅延を追加
+                                UpdatePageCanvases();
+                                
+                                // 新しいスクロール位置を計算
+                                var newPointY = _totalHeight * relativeY;
+                                var newScrollY = newPointY - (mouseY * (_totalHeight / oldHeight));
+
+                                Debug.WriteLine($"New Scroll Position - NewPointY: {newPointY}, NewScrollY: {newScrollY}");
+
+                                // スクロール位置を更新
+                                await _parentScrollView.ScrollToAsync(0, Math.Max(0, Math.Min(newScrollY, _totalHeight - viewportHeight)), false);
+                                InvalidateSurface();
+                            });
+                        }
+                        e.Handled = true;
+                    }
+                    break;
+            }
+        }
+
+        private void UpdatePageCanvases()
+        {
+            Debug.WriteLine($"Updating Page Canvases - Current Scale: {_currentScale}");
+
+            var oldPageCanvases = _pageCanvases.ToList();
+            _pageCanvases.Clear();
+
+            float currentY = 0;
+            for (int i = 0; i < _pdfPages.Count; i++)
+            {
+                var bitmap = _pdfPages[i];
+                if (bitmap == null)
+                {
+                    Debug.WriteLine($"Warning: Page bitmap is null for page {i}");
+                    continue;
+                }
+
+                var pageScale = (BASE_CANVAS_WIDTH * _currentScale) / bitmap.Width;
+                var pageCanvas = new PageCanvas
+                {
+                    PageIndex = i,
+                    PageBitmap = bitmap,
+                    Width = BASE_CANVAS_WIDTH * _currentScale,
+                    Height = bitmap.Height * pageScale,
+                    Y = currentY,
+                    DrawingElements = new ObservableCollection<DrawingStroke>(),
+                    IsHighQuality = _highQualityPages.ContainsKey(i)
+                };
+
+                // 既存のページキャンバスから描画要素をコピー
+                if (i < oldPageCanvases.Count && oldPageCanvases[i]?.DrawingElements != null)
+                {
+                    foreach (var element in oldPageCanvases[i].DrawingElements)
+                    {
+                        pageCanvas.DrawingElements.Add(element);
+                    }
+                }
+
+                _pageCanvases.Add(pageCanvas);
+                currentY += pageCanvas.Height + 20; // ページ間の余白を追加
+            }
+
+            // スクロールビューの高さを更新
+            _totalHeight = currentY;
+            WidthRequest = BASE_CANVAS_WIDTH * _currentScale;
+            HeightRequest = _totalHeight;
+            UpdateScrollViewHeight();
+
+            Debug.WriteLine($"Total Height: {_totalHeight}, Width Request: {WidthRequest}, Height Request: {HeightRequest}");
+
+            InvalidateSurface();
+        }
+
+        protected override void OnPaintSurface(SKPaintSurfaceEventArgs e)
+        {
+            var canvas = e.Surface.Canvas;
+            canvas.Clear(SKColors.White);
+
+            // 高品質な描画を有効化
+            var paint = new SKPaint
+            {
+                IsAntialias = _currentScale <= 2.0f,
+                FilterQuality = SKFilterQuality.Low
+            };
+
+            var info = e.Info;
+            Debug.WriteLine($"Canvas Info - Width: {info.Width}, Height: {info.Height}, DPI: {info.Width / BASE_CANVAS_WIDTH}");
+
+            // スケーリング計算
+            var scale = Math.Min(info.Width / BASE_CANVAS_WIDTH, info.Height / (_totalHeight / _currentScale));
+            var centerX = (info.Width - (BASE_CANVAS_WIDTH * scale)) / 2;
+            var centerY = (info.Height - (_totalHeight * scale / _currentScale)) / 2;
+            
+            Debug.WriteLine($"Scaling Info - Scale: {scale}, CenterX: {centerX}, CenterY: {centerY}, CurrentScale: {_currentScale}");
+            Debug.WriteLine($"Total Height: {_totalHeight}, Base Canvas Width: {BASE_CANVAS_WIDTH}");
+
+            canvas.Translate(centerX, centerY);
+
+            var scrollY = _parentScrollView?.ScrollY ?? 0;
+            var viewportHeight = _parentScrollView?.Height ?? Height;
+
+            Debug.WriteLine($"Scroll Info - ScrollY: {scrollY}, ViewportHeight: {viewportHeight}");
+
+            // 表示範囲内のページのみを描画
+            var visiblePages = _pageCanvases
+                .Where(p => !(p.Y + p.Height < scrollY - viewportHeight || 
+                             p.Y > scrollY + viewportHeight * 2))
+                .ToList();
+
+            foreach (var pageCanvas in visiblePages)
+            {
+                if (pageCanvas.PageBitmap == null) continue;
+
+                Debug.WriteLine($"Page Canvas Info - PageIndex: {pageCanvas.PageIndex}, Y: {pageCanvas.Y}, Height: {pageCanvas.Height}");
+                Debug.WriteLine($"Bitmap Info - Width: {pageCanvas.PageBitmap.Width}, Height: {pageCanvas.PageBitmap.Height}");
+
+                // ページの描画
+                var dest = new SKRect(
+                    0, 
+                    pageCanvas.Y * scale / _currentScale, 
+                    BASE_CANVAS_WIDTH * scale, 
+                    (pageCanvas.Y + pageCanvas.Height) * scale / _currentScale
+                );
+                Debug.WriteLine($"Drawing Rect - Left: {dest.Left}, Top: {dest.Top}, Right: {dest.Right}, Bottom: {dest.Bottom}");
+
+                canvas.DrawBitmap(pageCanvas.PageBitmap, dest, paint);
+
+                // 描画要素の描画
+                foreach (var element in pageCanvas.DrawingElements.ToList())
+                {
+                    var path = new SKPath();
+                    var elementPaint = element.DrawingPaint.Clone();
+                    elementPaint.IsAntialias = _currentScale <= 2.0f;
+                    
+                    Debug.WriteLine($"Drawing Element - IsShape: {element.IsShape}, ShapeType: {element.ShapeType}");
+                    Debug.WriteLine($"Element Paint - Color: {element.DrawingPaint.Color}, StrokeWidth: {element.DrawingPaint.StrokeWidth}");
+
+                    // 図形の場合、適切なパスを作成
+                    if (element.IsShape)
+                    {
+                        switch (element.ShapeType)
+                        {
+                            case ShapeType.Line:
+                                var points = GetPointsFromPath(element.DrawingPath);
+                                if (points.Count >= 2)
+                                {
+                                    path.MoveTo(points[0]);
+                                    path.LineTo(points[points.Count - 1]);
+                                }
+                                break;
+                            case ShapeType.Circle:
+                                var bounds = element.DrawingPath.Bounds;
+                                var center = new SKPoint(bounds.MidX, bounds.MidY);
+                                var radius = Math.Max(bounds.Width, bounds.Height) / 2;
+                                path.AddCircle(center.X, center.Y, radius);
+                                break;
+                            case ShapeType.Triangle:
+                            case ShapeType.Rectangle:
+                                path.AddPath(element.DrawingPath);
+                                break;
+                        }
+                    }
+                    else
+                    {
+                        path.AddPath(element.DrawingPath);
+                    }
+                    
+                    // スケーリングと位置調整を適用
+                    var matrix = SKMatrix.CreateIdentity();
+                    matrix = matrix.PostConcat(SKMatrix.CreateScale(scale, scale));
+                    matrix = matrix.PostConcat(SKMatrix.CreateTranslation(0, pageCanvas.Y * scale / _currentScale));
+                    path.Transform(matrix);
+                    
+                    // 図形の場合は線の太さを調整
+                    if (element.IsShape)
+                    {
+                        elementPaint.StrokeWidth = Math.Max(element.DrawingPaint.StrokeWidth * scale, 1.0f);
+                    }
+                    else
+                    {
+                        elementPaint.StrokeWidth = element.DrawingPaint.StrokeWidth * scale;
+                    }
+
+                    Debug.WriteLine($"Transformed Path Bounds - Left: {path.Bounds.Left}, Top: {path.Bounds.Top}, Right: {path.Bounds.Right}, Bottom: {path.Bounds.Bottom}");
+                    
+                    canvas.DrawPath(path, elementPaint);
+                }
+
+                // 現在の描画パスの描画（消しゴムツール以外の場合のみ）
+                if (pageCanvas.IsDrawing && _currentTool != DrawingTool.Eraser)
+                {
+                    var currentPath = new SKPath();
+                    if (_previewPath != null)
+                    {
+                        currentPath.AddPath(_previewPath);
+                    }
+                    else
+                    {
+                        currentPath.AddPath(pageCanvas.CurrentPath);
+                    }
+                    
+                    var currentPaint = _currentPaint.Clone();
+                    currentPaint.IsAntialias = _currentScale <= 2.0f;
+                    currentPaint.StrokeWidth = _currentPaint.StrokeWidth * scale;
+                    currentPaint.BlendMode = _currentPaint.BlendMode;
+
+                    Debug.WriteLine($"Current Path Info - PointCount: {currentPath.PointCount}");
+                    Debug.WriteLine($"Current Paint - Color: {currentPaint.Color}, StrokeWidth: {currentPaint.StrokeWidth}");
+
+                    // スケーリングと位置調整を適用
+                    var matrix = SKMatrix.CreateIdentity();
+                    matrix = matrix.PostConcat(SKMatrix.CreateScale(scale, scale));
+                    matrix = matrix.PostConcat(SKMatrix.CreateTranslation(0, pageCanvas.Y * scale / _currentScale));
+                    currentPath.Transform(matrix);
+
+                    Debug.WriteLine($"Transformed Current Path Bounds - Left: {currentPath.Bounds.Left}, Top: {currentPath.Bounds.Top}, Right: {currentPath.Bounds.Right}, Bottom: {currentPath.Bounds.Bottom}");
+
+                    canvas.DrawPath(currentPath, currentPaint);
+                }
+            }
+
+            // 選択された要素のハイライト表示
+            if (_selectedElement != null && _selectedPageCanvas != null)
+            {
+                var highlightPaint = new SKPaint
+                {
+                    Style = SKPaintStyle.Stroke,
+                    Color = SKColors.Blue,
+                    StrokeWidth = 2,
+                    IsAntialias = _currentScale <= 2.0f,
+                    PathEffect = SKPathEffect.CreateDash(new float[] { 5 * _currentScale, 5 * _currentScale }, 0)
+                };
+
+                var path = new SKPath();
+                path.AddPath(_selectedElement.DrawingPath);
+
+                // スケーリングと位置調整を適用
+                var matrix = SKMatrix.CreateIdentity();
+                matrix = matrix.PostConcat(SKMatrix.CreateScale(scale, scale));
+                matrix = matrix.PostConcat(SKMatrix.CreateTranslation(0, _selectedPageCanvas.Y * scale / _currentScale));
+                path.Transform(matrix);
+                
+                canvas.DrawPath(path, highlightPaint);
+            }
+
+            // コンテキストメニューの表示
+            DrawContextMenu(canvas);
+        }
+
+        private void DrawContextMenu(SKCanvas canvas)
+        {
+            if (!_isShowingContextMenu) return;
+
+            var menuPaint = new SKPaint
+            {
+                Color = SKColors.White,
+                Style = SKPaintStyle.Fill
+            };
+            var borderPaint = new SKPaint
+            {
+                Color = SKColors.Black,
+                Style = SKPaintStyle.Stroke,
+                StrokeWidth = 1
+            };
+
+            var menuRect = new SKRect(
+                _lastRightClickPoint.X,
+                _lastRightClickPoint.Y,
+                _lastRightClickPoint.X + CONTEXT_MENU_WIDTH,
+                _lastRightClickPoint.Y + CONTEXT_MENU_HEIGHT
+            );
+
+            canvas.DrawRect(menuRect, menuPaint);
+            canvas.DrawRect(menuRect, borderPaint);
+
+            // 色選択ボタンの描画（一番上）
+            float x = menuRect.Left + COLOR_BOX_MARGIN;
+            float y = menuRect.Top + (CONTEXT_MENU_ITEM_HEIGHT - COLOR_BOX_SIZE) / 2;
+
+            foreach (var color in _colors.Values)
+            {
+                var colorBoxRect = new SKRect(x, y, x + COLOR_BOX_SIZE, y + COLOR_BOX_SIZE);
+                var colorBoxPaint = new SKPaint
+                {
+                    Color = color,
+                    Style = SKPaintStyle.Fill
+                };
+                var colorBoxBorderPaint = new SKPaint
+                {
+                    Color = SKColors.Black,
+                    Style = SKPaintStyle.Stroke,
+                    StrokeWidth = 1
+                };
+
+                canvas.DrawRect(colorBoxRect, colorBoxPaint);
+                canvas.DrawRect(colorBoxRect, colorBoxBorderPaint);
+
+                x += COLOR_BOX_SIZE + COLOR_BOX_MARGIN;
+                if (x + COLOR_BOX_SIZE > menuRect.Right)
+                {
+                    break;
+                }
+            }
+
+            // 透明度選択ボタンの描画（マーカーツール時のみ、色選択の下）
+            if (_currentTool == DrawingTool.Marker)
+            {
+                x = menuRect.Left + STROKE_WIDTH_BOX_MARGIN;
+                y = menuRect.Top + CONTEXT_MENU_ITEM_HEIGHT + (CONTEXT_MENU_ITEM_HEIGHT - STROKE_WIDTH_BOX_SIZE) / 2;
+
+                foreach (var transparency in _transparencies)
+                {
+                    var transparencyBoxRect = new SKRect(x, y, x + STROKE_WIDTH_BOX_SIZE, y + STROKE_WIDTH_BOX_SIZE);
+                    var transparencyBoxPaint = new SKPaint
+                    {
+                        Color = SKColors.White,
+                        Style = SKPaintStyle.Fill
+                    };
+                    var transparencyBoxBorderPaint = new SKPaint
+                    {
+                        Color = SKColors.Black,
+                        Style = SKPaintStyle.Stroke,
+                        StrokeWidth = 1
+                    };
+
+                    canvas.DrawRect(transparencyBoxRect, transparencyBoxPaint);
+                    canvas.DrawRect(transparencyBoxRect, transparencyBoxBorderPaint);
+
+                    // 透明度の表示
+                    var transparencyPaint = new SKPaint
+                    {
+                        Color = _markerPaint.Color.WithAlpha((byte)(transparency.Value * 255)),
+                        Style = SKPaintStyle.Fill,
+                        IsAntialias = true
+                    };
+                    canvas.DrawRect(transparencyBoxRect, transparencyPaint);
+
+                    x += STROKE_WIDTH_BOX_SIZE + STROKE_WIDTH_BOX_MARGIN;
+                    if (x + STROKE_WIDTH_BOX_SIZE > menuRect.Right)
+                    {
+                        break;
+                    }
+                }
+            }
+
+            // 太さ選択ボタンの描画（一番下）
+            x = menuRect.Left + STROKE_WIDTH_BOX_MARGIN;
+            y = menuRect.Top + CONTEXT_MENU_ITEM_HEIGHT * (_currentTool == DrawingTool.Marker ? 2 : 1) + (CONTEXT_MENU_ITEM_HEIGHT - STROKE_WIDTH_BOX_SIZE) / 2;
+
+            var widths = _currentTool == DrawingTool.Marker ? _markerWidths : _strokeWidths;
+            foreach (var width in widths)
+            {
+                var widthBoxRect = new SKRect(x, y, x + STROKE_WIDTH_BOX_SIZE, y + STROKE_WIDTH_BOX_SIZE);
+                var widthBoxPaint = new SKPaint
+                {
+                    Color = SKColors.White,
+                    Style = SKPaintStyle.Fill
+                };
+                var widthBoxBorderPaint = new SKPaint
+                {
+                    Color = SKColors.Black,
+                    Style = SKPaintStyle.Stroke,
+                    StrokeWidth = 1
+                };
+
+                canvas.DrawRect(widthBoxRect, widthBoxPaint);
+                canvas.DrawRect(widthBoxRect, widthBoxBorderPaint);
+
+                // 太さの表示
+                var linePaint = new SKPaint
+                {
+                    Color = SKColors.Black,
+                    Style = SKPaintStyle.Stroke,
+                    StrokeWidth = width.Value,
+                    IsAntialias = true
+                };
+                canvas.DrawLine(
+                    widthBoxRect.Left + STROKE_WIDTH_BOX_MARGIN,
+                    widthBoxRect.MidY,
+                    widthBoxRect.Right - STROKE_WIDTH_BOX_MARGIN,
+                    widthBoxRect.MidY,
+                    linePaint);
+
+                x += STROKE_WIDTH_BOX_SIZE + STROKE_WIDTH_BOX_MARGIN;
+                if (x + STROKE_WIDTH_BOX_SIZE > menuRect.Right)
+                {
+                    break;
+                }
+            }
+        }
+
+        private bool IsPointInColorBox(SKPoint point, int colorIndex)
+        {
+            if (!_isShowingContextMenu) return false;
+
+            var menuRect = new SKRect(
+                _lastRightClickPoint.X,
+                _lastRightClickPoint.Y,
+                _lastRightClickPoint.X + CONTEXT_MENU_WIDTH,
+                _lastRightClickPoint.Y + CONTEXT_MENU_HEIGHT
+            );
+
+            float x = menuRect.Left + COLOR_BOX_MARGIN + (COLOR_BOX_SIZE + COLOR_BOX_MARGIN) * colorIndex;
+            float y = menuRect.Top + (CONTEXT_MENU_ITEM_HEIGHT - COLOR_BOX_SIZE) / 2;
+
+            var colorBoxRect = new SKRect(x, y, x + COLOR_BOX_SIZE, y + COLOR_BOX_SIZE);
+            return colorBoxRect.Contains(point);
+        }
+
+        private bool IsPointInStrokeWidthBox(SKPoint point, int widthIndex)
+        {
+            if (!_isShowingContextMenu) return false;
+
+            var menuRect = new SKRect(
+                _lastRightClickPoint.X,
+                _lastRightClickPoint.Y,
+                _lastRightClickPoint.X + CONTEXT_MENU_WIDTH,
+                _lastRightClickPoint.Y + CONTEXT_MENU_HEIGHT
+            );
+
+            float x = menuRect.Left + STROKE_WIDTH_BOX_MARGIN + (STROKE_WIDTH_BOX_SIZE + STROKE_WIDTH_BOX_MARGIN) * widthIndex;
+            float y = menuRect.Top + CONTEXT_MENU_ITEM_HEIGHT * (_currentTool == DrawingTool.Marker ? 2 : 1) + (CONTEXT_MENU_ITEM_HEIGHT - STROKE_WIDTH_BOX_SIZE) / 2;
+
+            var widthBoxRect = new SKRect(x, y, x + STROKE_WIDTH_BOX_SIZE, y + STROKE_WIDTH_BOX_SIZE);
+            return widthBoxRect.Contains(point);
+        }
+
+        private bool IsPointInTransparencyBox(SKPoint point, int transparencyIndex)
+        {
+            if (!_isShowingContextMenu || _currentTool != DrawingTool.Marker) return false;
+
+            var menuRect = new SKRect(
+                _lastRightClickPoint.X,
+                _lastRightClickPoint.Y,
+                _lastRightClickPoint.X + CONTEXT_MENU_WIDTH,
+                _lastRightClickPoint.Y + CONTEXT_MENU_HEIGHT
+            );
+
+            float x = menuRect.Left + STROKE_WIDTH_BOX_MARGIN + (STROKE_WIDTH_BOX_SIZE + STROKE_WIDTH_BOX_MARGIN) * transparencyIndex;
+            float y = menuRect.Top + CONTEXT_MENU_ITEM_HEIGHT + (CONTEXT_MENU_ITEM_HEIGHT - STROKE_WIDTH_BOX_SIZE) / 2;
+
+            var transparencyBoxRect = new SKRect(x, y, x + STROKE_WIDTH_BOX_SIZE, y + STROKE_WIDTH_BOX_SIZE);
+            return transparencyBoxRect.Contains(point);
+        }
+
+        public void SetTool(DrawingTool tool)
+        {
+            _currentTool = tool;
+            _currentPaint = tool switch
+            {
+                DrawingTool.Pen => _penPaint.Clone(),
+                DrawingTool.Marker => _markerPaint.Clone(),
+                DrawingTool.Eraser => _eraserPaint.Clone(),
+                _ => _currentPaint
+            };
+        }
+
+        private void UpdateCurrentPaint(SKColor color, float strokeWidth, float? transparency = null)
+        {
+            switch (_currentTool)
+            {
+                case DrawingTool.Pen:
+                    _penPaint.Color = color;
+                    _penPaint.StrokeWidth = strokeWidth;
+                    _currentPaint = _penPaint.Clone();
+                    break;
+                case DrawingTool.Marker:
+                    var alpha = transparency.HasValue ? (byte)(transparency.Value * 255) : (byte)128;
+                    _markerPaint.Color = color.WithAlpha(alpha);
+                    _markerPaint.StrokeWidth = strokeWidth;
+                    _currentPaint = _markerPaint.Clone();
+                    break;
+                case DrawingTool.Eraser:
+                    _eraserPaint.StrokeWidth = strokeWidth;
+                    _currentPaint = _eraserPaint.Clone();
+                    break;
+            }
+        }
+
+        public void SetPenColor(SKColor color)
+        {
+            if (_currentPaint != null)
+            {
+                _currentPaint.Color = color;
+                _currentPaint.Style = SKPaintStyle.Stroke;
+                _currentPaint.StrokeWidth = 2;
+                _currentPaint.StrokeCap = SKStrokeCap.Round;
+                _currentPaint.StrokeJoin = SKStrokeJoin.Round;
+                _currentPaint.IsAntialias = true;
+            }
+        }
+
+        public void Clear()
+        {
+            _drawingElements.Clear();
+            _backgroundImage?.Dispose();
+            _backgroundImage = null;
+            ClearPdfPages();
+            _pdfDocument?.Dispose();
+            _pdfDocument = null;
+            _pdfStream?.Dispose();
+            _pdfStream = null;
+            _undoStack.Clear();
+            _redoStack.Clear();
+            InvalidateSurface();
+        }
+
+        public void Undo()
+        {
+            if (_undoStack.Count > 0)
+            {
+                var (pageIndex, element) = _undoStack.Pop();
+                var pageCanvas = _pageCanvases.FirstOrDefault(pc => pc.PageIndex == pageIndex);
+                if (pageCanvas != null)
+                {
+                    // 要素が移動された場合の処理
+                    if (element.IsMoved)
+                    {
+                        // 元の位置に戻す
+                        element.RestoreOriginalPosition();
+                        InvalidateSurface();
+                    }
+                    else
+                    {
+                        // 通常の削除処理
+                        pageCanvas.DrawingElements.Remove(element);
+                        _redoStack.Push((pageIndex, element));
+                        InvalidateSurface();
+                    }
+                }
+            }
+        }
+
+        public void Redo()
+        {
+            if (_redoStack.Count > 0)
+            {
+                var (pageIndex, element) = _redoStack.Pop();
+                var pageCanvas = _pageCanvases.FirstOrDefault(pc => pc.PageIndex == pageIndex);
+                if (pageCanvas != null)
+                {
+                    // 要素が移動された場合の処理
+                    if (element.IsMoved)
+                    {
+                        // 移動後の位置に戻す
+                        element.RestoreMovedPosition();
+                        InvalidateSurface();
+                    }
+                    else
+                    {
+                        // 通常の追加処理
+                        pageCanvas.DrawingElements.Add(element);
+                        _undoStack.Push((pageIndex, element));
+                        InvalidateSurface();
+                    }
+                }
+            }
+        }
+
+        public async Task LoadImageAsync(string filePath)
+        {
+            try
+            {
+                using (var stream = File.OpenRead(filePath))
+                {
+                    _backgroundImage?.Dispose();
+                    _backgroundImage = SKBitmap.Decode(stream);
+                    InvalidateSurface();
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error loading image: {ex.Message}");
+            }
+        }
+
+        private async Task LoadPdfPageAsync(int pageIndex, float dpi)
+        {
+            if (_pdfDocument == null || pageIndex < 0 || pageIndex >= _pdfDocument.PageCount)
+                return;
+
+            try
+            {
+                // キャッシュファイルのパスを生成
+                var pageCacheDir = Path.Combine(_tempDirectory, PAGE_CACHE_DIR);
+                Directory.CreateDirectory(pageCacheDir);
+                var cacheFileName = Path.Combine(pageCacheDir, $"page_{pageIndex}_{dpi}.png");
+
+                // キャッシュファイルが存在する場合はそれを使用
+                if (File.Exists(cacheFileName))
+                {
+                    try
+                    {
+                        using (var stream = File.OpenRead(cacheFileName))
+                        {
+                            var bitmap = SKBitmap.Decode(stream);
+                            if (bitmap != null)
+                            {
+                                await SetPageBitmap(pageIndex, bitmap, dpi);
+                                return;
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"Error loading cached page {pageIndex}: {ex.Message}");
+                        // キャッシュファイルが破損している場合は削除
+                        try { File.Delete(cacheFileName); } catch { }
+                    }
+                }
+
+                // キャッシュファイルが存在しないか破損している場合は新規作成
+                Debug.WriteLine($"Loading page {pageIndex} at {dpi} DPI");
+                var pageSize = _pdfDocument.PageSizes[pageIndex];
+                var widthInPixels = (int)Math.Round(pageSize.Width * dpi / 72f);
+                var heightInPixels = (int)Math.Round(pageSize.Height * dpi / 72f);
+
+                using (var page = _pdfDocument.Render(pageIndex, widthInPixels, heightInPixels, dpi, dpi, true))
+                using (var memoryStream = new MemoryStream())
+                {
+                    page.Save(memoryStream, System.Drawing.Imaging.ImageFormat.Png);
+                    memoryStream.Position = 0;
+                    var bitmap = SKBitmap.Decode(memoryStream);
+                    
+                    if (bitmap != null)
+                    {
+                        // キャッシュファイルとして保存
+                        using (var stream = File.Create(cacheFileName))
+                        {
+                            var data = bitmap.Encode(SKEncodedImageFormat.Png, 100);
+                            data.SaveTo(stream);
+                        }
+
+                        await SetPageBitmap(pageIndex, bitmap, dpi);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error loading PDF page {pageIndex}: {ex.Message}");
+            }
+            finally
+            {
+                _loadingPages.Remove(pageIndex);
+            }
+        }
+
+        private async Task SetPageBitmap(int pageIndex, SKBitmap bitmap, float dpi)
+        {
+            if (bitmap == null) return;
+
+            await MainThread.InvokeOnMainThreadAsync(() =>
+            {
+                try
+                {
+                    if (dpi == HIGH_DPI)
+                    {
+                        Debug.WriteLine($"Setting high quality page {pageIndex}");
+                        
+                        // 既存の高画質ページを破棄
+                        if (_highQualityPages.TryGetValue(pageIndex, out var oldHighQualityBitmap))
+                        {
+                            oldHighQualityBitmap?.Dispose();
+                        }
+                        
+                        _highQualityPages[pageIndex] = bitmap;
+                        
+                        // 高画質ページを表示用のページとしても設定
+                        var oldBitmap = _pdfPages[pageIndex];
+                        _pdfPages[pageIndex] = bitmap;
+                        if (oldBitmap != null && oldBitmap != bitmap)
+                        {
+                            oldBitmap.Dispose();
+                        }
+                    }
+                    else
+                    {
+                        Debug.WriteLine($"Setting low quality page {pageIndex}");
+                        if (!_highQualityPages.ContainsKey(pageIndex))
+                        {
+                            var oldBitmap = _pdfPages[pageIndex];
+                            _pdfPages[pageIndex] = bitmap;
+                            if (oldBitmap != null)
+                            {
+                                oldBitmap.Dispose();
+                            }
+                        }
+                        else
+                        {
+                            bitmap.Dispose();
+                            return;
+                        }
+                    }
+
+                    // ページキャンバスの更新
+                    var pageCanvas = _pageCanvases.FirstOrDefault(pc => pc.PageIndex == pageIndex);
+                    if (pageCanvas == null)
+                    {
+                        // ページキャンバスが存在しない場合は新規作成
+                        pageCanvas = new PageCanvas
+                        {
+                            PageIndex = pageIndex,
+                            DrawingElements = new ObservableCollection<DrawingStroke>()
+                        };
+                        _pageCanvases.Add(pageCanvas);
+                    }
+
+                    pageCanvas.PageBitmap = _pdfPages[pageIndex];
+                    pageCanvas.IsHighQuality = dpi == HIGH_DPI;
+                    pageCanvas.NeedsUpdate = true;
+                    Debug.WriteLine($"Page {pageIndex} updated, invalidating surface");
+                    InvalidateSurface();
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"Error setting page bitmap for page {pageIndex}: {ex.Message}");
+                    bitmap?.Dispose();
+                }
+            });
+        }
+
+        private async Task UpdateVisiblePagesAsync(double scrollY)
+        {
+            if (_pdfDocument == null || _pageCanvases.Count == 0)
+                return;
+
+            var viewportHeight = _parentScrollView?.Height ?? Height;
+            
+            // バッファを1ページに減らす
+            var visiblePages = _pageCanvases
+                .Select((page, index) => new { Page = page, Index = index })
+                .Where(p => !(p.Page.Y + p.Page.Height < scrollY - viewportHeight || 
+                             p.Page.Y > scrollY + viewportHeight * 1.5))
+                .ToList();
+
+            if (!visiblePages.Any())
+                return;
+
+            _currentVisiblePage = visiblePages.First().Index;
+
+            // 読み込む範囲を縮小（前後1ページずつ）
+            var startPage = Math.Max(0, _currentVisiblePage - VISIBLE_PAGE_BUFFER);
+            var endPage = Math.Min(_pdfDocument.PageCount - 1, _currentVisiblePage + VISIBLE_PAGE_BUFFER);
+
+            // メモリ使用量が多い場合は強制的にクリーンアップを実行
+            if (_highQualityPages.Count > MAX_CACHED_PAGES)
+            {
+                await CleanupMemoryAsync();
+            }
+
+            var needsUpdate = false;
+
+            // 表示範囲外のページを低画質に戻す処理を同期的に実行
+            var pagesToDowngrade = _highQualityPages.Keys
+                .Where(i => i < startPage || i > endPage)
+                .ToList();
+
+            foreach (var pageIndex in pagesToDowngrade)
+            {
+                Debug.WriteLine($"Downgrading page {pageIndex} to low quality");
+                SKBitmap highQualityBitmap = null;
+                
+                // 高画質ビットマップを取得
+                if (_highQualityPages.TryGetValue(pageIndex, out highQualityBitmap))
+                {
+                    _highQualityPages.Remove(pageIndex);
+                    needsUpdate = true;
+
+                    // 低画質ページを読み込む
+                    try
+                    {
+                        SKBitmap lowQualityBitmap = null;
+                        using (var page = _pdfDocument.Render(pageIndex, 
+                            (int)Math.Round(_pdfDocument.PageSizes[pageIndex].Width * LOW_DPI / 72f),
+                            (int)Math.Round(_pdfDocument.PageSizes[pageIndex].Height * LOW_DPI / 72f),
+                            LOW_DPI, LOW_DPI, true))
+                        using (var memoryStream = new MemoryStream())
+                        {
+                            page.Save(memoryStream, System.Drawing.Imaging.ImageFormat.Png);
+                            memoryStream.Position = 0;
+                            lowQualityBitmap = SKBitmap.Decode(memoryStream);
+
+                            if (lowQualityBitmap != null)
+                            {
+                                await MainThread.InvokeOnMainThreadAsync(() =>
+                                {
+                                    try
+                                    {
+                                        _pdfPages[pageIndex] = lowQualityBitmap;
+                                        var pageCanvas = _pageCanvases.FirstOrDefault(pc => pc.PageIndex == pageIndex);
+                                        if (pageCanvas != null)
+                                        {
+                                            pageCanvas.PageBitmap = lowQualityBitmap;
+                                            pageCanvas.IsHighQuality = false;
+                                            pageCanvas.NeedsUpdate = true;
+                                        }
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        Debug.WriteLine($"Error updating page canvas for page {pageIndex}: {ex.Message}");
+                                        lowQualityBitmap?.Dispose();
+                                    }
+                                });
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"Error loading low quality page {pageIndex}: {ex.Message}");
+                    }
+
+                    // 高画質ビットマップを解放
+                    await MainThread.InvokeOnMainThreadAsync(() =>
+                    {
+                        try
+                        {
+                            highQualityBitmap?.Dispose();
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine($"Error disposing high quality bitmap for page {pageIndex}: {ex.Message}");
+                        }
+                    });
+                }
+            }
+
+            // 表示範囲内のページを高画質で読み込む（一度に1ページずつ）
+            for (int i = startPage; i <= endPage; i++)
+            {
+                if (!_highQualityPages.ContainsKey(i) && !_loadingPages.Contains(i))
+                {
+                    Debug.WriteLine($"Loading high quality page {i}");
+                    _loadingPages.Add(i);
+                    try
+                    {
+                        await LoadPdfPageAsync(i, HIGH_DPI);
+                        needsUpdate = true;
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"Error loading high quality page {i}: {ex.Message}");
+                        _loadingPages.Remove(i);
+                    }
+                }
+            }
+
+            if (needsUpdate)
+            {
+                await MainThread.InvokeOnMainThreadAsync(() =>
+                {
+                    try
+                    {
+                        UpdatePageCanvases();
+                        InvalidateSurface();
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"Error updating page canvases: {ex.Message}");
+                    }
+                });
+            }
+        }
+
+        private async Task CleanupMemoryAsync()
+        {
+            // キャッシュ制限を超えた場合のみクリーンアップを実行
+            if (_highQualityPages.Count > CACHE_CLEANUP_THRESHOLD)
+            {
+                var visibleRange = Enumerable.Range(
+                    Math.Max(0, _currentVisiblePage - 2),
+                    Math.Min(_pdfDocument.PageCount - 1, _currentVisiblePage + 2) - Math.Max(0, _currentVisiblePage - 2) + 1
+                );
+
+                var pagesToRemove = _highQualityPages.Keys
+                    .Where(k => !visibleRange.Contains(k))
+                    .OrderByDescending(k => Math.Abs(k - _currentVisiblePage))
+                    .Skip(MAX_CACHED_PAGES)
+                    .ToList();
+
+                foreach (var pageIndex in pagesToRemove)
+                {
+                    if (_highQualityPages.TryGetValue(pageIndex, out var bitmap))
+                    {
+                        bitmap.Dispose();
+                        _highQualityPages.Remove(pageIndex);
+                        await LoadPdfPageAsync(pageIndex, LOW_DPI);
+                    }
+                }
+            }
+        }
+
+        public async Task SaveDrawingDataAsync(string customPath = null)
+        {
+            try
+            {
+                var drawingData = new DrawingData
+                {
+                    PdfFilePath = _currentPdfPath,
+                    Pages = _pageCanvases.Select(pc => new PageDrawingData
+                    {
+                        PageIndex = pc.PageIndex,
+                        DrawingElements = pc.DrawingElements.Select(de => new DrawingStrokeData
+                        {
+                            Points = GetPointsFromPath(de.DrawingPath),
+                            Color = de.DrawingPaint.Color,
+                            StrokeWidth = de.DrawingPaint.StrokeWidth,
+                            Style = de.DrawingPaint.Style,
+                            Transparency = de.DrawingPaint.Color.Alpha / 255.0f,
+                            Tool = de.DrawingPaint.BlendMode == SKBlendMode.SrcOver ? DrawingTool.Marker : DrawingTool.Pen,
+                            IsShape = de.IsShape,
+                            ShapeType = de.ShapeType,
+                            
+                            // 図形固有の情報を保存
+                            Center = de.IsShape ? new SKPoint(de.DrawingPath.Bounds.MidX, de.DrawingPath.Bounds.MidY) : SKPoint.Empty,
+                            Radius = de.IsShape && de.ShapeType == ShapeType.Circle ? 
+                                Math.Max(de.DrawingPath.Bounds.Width, de.DrawingPath.Bounds.Height) / 2 : 0,
+                            StartPoint = de.IsShape && de.ShapeType == ShapeType.Line ? 
+                                GetPointsFromPath(de.DrawingPath).First() : SKPoint.Empty,
+                            EndPoint = de.IsShape && de.ShapeType == ShapeType.Line ? 
+                                GetPointsFromPath(de.DrawingPath).Last() : SKPoint.Empty,
+                            Vertices = de.IsShape && (de.ShapeType == ShapeType.Triangle || de.ShapeType == ShapeType.Rectangle) ? 
+                                GetPointsFromPath(de.DrawingPath) : new List<SKPoint>()
+                        }).ToList()
+                    }).ToList(),
+                    PenSettings = new Dictionary<string, float>
+                    {
+                        { "StrokeWidth", _penPaint.StrokeWidth },
+                        { "Color", BitConverter.ToUInt32(new byte[] { _penPaint.Color.Alpha, _penPaint.Color.Red, _penPaint.Color.Green, _penPaint.Color.Blue }, 0) }
+                    },
+                    MarkerSettings = new Dictionary<string, float>
+                    {
+                        { "StrokeWidth", _markerPaint.StrokeWidth },
+                        { "Color", BitConverter.ToUInt32(new byte[] { _markerPaint.Color.Alpha, _markerPaint.Color.Red, _markerPaint.Color.Green, _markerPaint.Color.Blue }, 0) }
+                    }
+                };
+
+                var json = System.Text.Json.JsonSerializer.Serialize(drawingData);
+                var savePath = customPath ?? Path.Combine(_tempDirectory, DRAWING_DATA_FILE);
+                await File.WriteAllTextAsync(savePath, json);
+                Debug.WriteLine($"Drawing data saved to: {savePath}");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error saving drawing data: {ex.Message}");
+            }
+        }
+
+        public async Task LoadDrawingDataAsync()
+        {
+            try
+            {
+                var drawingDataPath = Path.Combine(_tempDirectory, DRAWING_DATA_FILE);
+                if (File.Exists(drawingDataPath))
+                {
+                    var json = await File.ReadAllTextAsync(drawingDataPath);
+                    var drawingData = System.Text.Json.JsonSerializer.Deserialize<DrawingData>(json);
+
+                    if (drawingData.PdfFilePath != null && drawingData.PdfFilePath != _currentPdfPath)
+                    {
+                        await LoadPdfAsync(drawingData.PdfFilePath);
+                    }
+
+                    // ツールの設定を復元
+                    if (drawingData.PenSettings != null)
+                    {
+                        _penPaint.StrokeWidth = drawingData.PenSettings.GetValueOrDefault("StrokeWidth", 2.0f);
+                        var colorValue = drawingData.PenSettings.GetValueOrDefault("Color", 0xFF000000);
+                        var colorBytes = BitConverter.GetBytes((uint)colorValue);
+                        _penPaint.Color = new SKColor(colorBytes[1], colorBytes[2], colorBytes[3], colorBytes[0]);
+                        _penPaint.BlendMode = SKBlendMode.Src;
+                        Debug.WriteLine($"Pen color loaded: A={_penPaint.Color.Alpha}, R={_penPaint.Color.Red}, G={_penPaint.Color.Green}, B={_penPaint.Color.Blue}");
+                    }
+
+                    if (drawingData.MarkerSettings != null)
+                    {
+                        _markerPaint.StrokeWidth = drawingData.MarkerSettings.GetValueOrDefault("StrokeWidth", 10.0f);
+                        var colorValue = drawingData.MarkerSettings.GetValueOrDefault("Color", 0x80FFFF00);
+                        var colorBytes = BitConverter.GetBytes((uint)colorValue);
+                        _markerPaint.Color = new SKColor(colorBytes[1], colorBytes[2], colorBytes[3], colorBytes[0]);
+                        _markerPaint.BlendMode = SKBlendMode.SrcOver;
+                        Debug.WriteLine($"Marker color loaded: A={_markerPaint.Color.Alpha}, R={_markerPaint.Color.Red}, G={_markerPaint.Color.Green}, B={_markerPaint.Color.Blue}");
+                    }
+
+                    // ページキャンバスが存在しない場合は作成
+                    if (_pageCanvases.Count == 0)
+                    {
+                        for (int i = 0; i < _pdfPages.Count; i++)
+                        {
+                            var pageCanvas = new PageCanvas
+                            {
+                                PageIndex = i,
+                                DrawingElements = new ObservableCollection<DrawingStroke>()
+                            };
+                            _pageCanvases.Add(pageCanvas);
+                        }
+                    }
+
+                    foreach (var pageData in drawingData.Pages)
+                    {
+                        if (pageData.PageIndex < _pageCanvases.Count)
+                        {
+                            var pageCanvas = _pageCanvases[pageData.PageIndex];
+                            pageCanvas.DrawingElements.Clear();
+
+                            foreach (var elementData in pageData.DrawingElements)
+                            {
+                                var path = new SKPath();
+                                var paint = new SKPaint
+                                {
+                                    Style = elementData.Style,
+                                    Color = elementData.Color,
+                                    StrokeWidth = elementData.StrokeWidth,
+                                    IsAntialias = true,
+                                    BlendMode = elementData.Tool == DrawingTool.Marker ? SKBlendMode.SrcOver : SKBlendMode.Src
+                                };
+
+                                if (elementData.Tool == DrawingTool.Marker)
+                                {
+                                    paint.Color = paint.Color.WithAlpha((byte)(elementData.Transparency * 255));
+                                }
+
+                                Debug.WriteLine($"Loading element color: A={paint.Color.Alpha}, R={paint.Color.Red}, G={paint.Color.Green}, B={paint.Color.Blue}, BlendMode={paint.BlendMode}");
+
+                                // 図形の種類に応じてパスを作成
+                                if (elementData.IsShape)
+                                {
+                                    switch (elementData.ShapeType)
+                                    {
+                                        case ShapeType.Circle:
+                                            path.AddCircle(elementData.Center.X, elementData.Center.Y, elementData.Radius);
+                                            break;
+                                        case ShapeType.Line:
+                                            path.MoveTo(elementData.StartPoint);
+                                            path.LineTo(elementData.EndPoint);
+                                            break;
+                                        case ShapeType.Triangle:
+                                        case ShapeType.Rectangle:
+                                            if (elementData.Vertices.Count > 0)
+                                            {
+                                                path.MoveTo(elementData.Vertices[0]);
+                                                for (int i = 1; i < elementData.Vertices.Count; i++)
+                                                {
+                                                    path.LineTo(elementData.Vertices[i]);
+                                                }
+                                                path.Close();
+                                            }
+                                            break;
+                                    }
+                                }
+                                else
+                                {
+                                    // 通常の描画
+                                    if (elementData.Points.Count > 0)
+                                    {
+                                        path.MoveTo(elementData.Points[0]);
+                                        for (int i = 1; i < elementData.Points.Count; i++)
+                                        {
+                                            path.LineTo(elementData.Points[i]);
+                                        }
+                                    }
+                                }
+
+                                var stroke = new DrawingStroke(path, paint);
+                                if (elementData.IsShape)
+                                {
+                                    stroke.IsShape = true;
+                                    stroke.ShapeType = elementData.ShapeType;
+                                }
+
+                                pageCanvas.DrawingElements.Add(stroke);
+                            }
+                        }
+                    }
+
+                    InvalidateSurface();
+                    Debug.WriteLine("Drawing data loaded successfully");
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error loading drawing data: {ex.Message}");
+            }
+        }
+
+        private List<SKPoint> GetPointsFromPath(SKPath path)
+        {
+            var points = new List<SKPoint>();
+            using (var iterator = path.CreateIterator(false))
+            {
+                var pathVerb = SKPathVerb.Move;
+                var pathPoints = new SKPoint[4];
+                
+                while ((pathVerb = iterator.Next(pathPoints)) != SKPathVerb.Done)
+                {
+                    switch (pathVerb)
+                    {
+                        case SKPathVerb.Move:
+                        case SKPathVerb.Line:
+                            points.Add(pathPoints[0]);
+                            break;
+                    }
+                }
+            }
+            return points;
+        }
+
+        private DrawingData _savedDrawingData;
+
+        public void SetDrawingData(DrawingData drawingData)
+        {
+            if (drawingData == null) return;
+
+            // 描画データを一時的に保存
+            _savedDrawingData = drawingData;
+        }
+
+        public async Task LoadPdfAsync(string filePath)
+        {
+            try
+            {
+                // 既存の描画データを保存
+                if (_currentPdfPath != null)
+                {
+                    await SaveDrawingDataAsync();
+                }
+
+                // 既存のリソースを解放
+                ClearPdfPages();
+                _pdfDocument?.Dispose();
+                _pdfStream?.Dispose();
+
+                // 新しいPDFを読み込む
+                _currentPdfPath = filePath;
+                _pdfPages.Clear();
+                _pageCanvases.Clear();
+
+                // キャッシュディレクトリの初期化
+                var pageCacheDir = Path.Combine(_tempDirectory, PAGE_CACHE_DIR);
+                if (!Directory.Exists(pageCacheDir))
+                {
+                    Directory.CreateDirectory(pageCacheDir);
+                }
+
+                // 保存された描画データがある場合は、それを優先して使用
+                if (_savedDrawingData != null)
+                {
+                    // ページキャンバスの作成
+                    for (int i = 0; i < _savedDrawingData.Pages.Count; i++)
+                    {
+                        var pageCanvas = new PageCanvas
+                        {
+                            PageIndex = i,
+                            DrawingElements = new ObservableCollection<DrawingStroke>()
+                        };
+                        _pageCanvases.Add(pageCanvas);
+                    }
+
+                    // 描画データの復元
+                    foreach (var pageData in _savedDrawingData.Pages)
+                    {
+                        if (pageData.PageIndex < _pageCanvases.Count)
+                        {
+                            var pageCanvas = _pageCanvases[pageData.PageIndex];
+                            pageCanvas.DrawingElements.Clear();
+
+                            foreach (var elementData in pageData.DrawingElements)
+                            {
+                                var path = new SKPath();
+                                var paint = new SKPaint
+                                {
+                                    Style = elementData.Style,
+                                    Color = elementData.Color,
+                                    StrokeWidth = elementData.StrokeWidth,
+                                    IsAntialias = true
+                                };
+
+                                if (elementData.Tool == DrawingTool.Marker)
+                                {
+                                    paint.BlendMode = SKBlendMode.SrcOver;
+                                    paint.Color = paint.Color.WithAlpha((byte)(elementData.Transparency * 255));
+                                }
+
+                                // 図形の種類に応じてパスを作成
+                                if (elementData.IsShape)
+                                {
+                                    switch (elementData.ShapeType)
+                                    {
+                                        case ShapeType.Circle:
+                                            path.AddCircle(elementData.Center.X, elementData.Center.Y, elementData.Radius);
+                                            break;
+                                        case ShapeType.Line:
+                                            path.MoveTo(elementData.StartPoint);
+                                            path.LineTo(elementData.EndPoint);
+                                            break;
+                                        case ShapeType.Triangle:
+                                        case ShapeType.Rectangle:
+                                            if (elementData.Vertices.Count > 0)
+                                            {
+                                                path.MoveTo(elementData.Vertices[0]);
+                                                for (int i = 1; i < elementData.Vertices.Count; i++)
+                                                {
+                                                    path.LineTo(elementData.Vertices[i]);
+                                                }
+                                                path.Close();
+                                            }
+                                            break;
+                                    }
+                                }
+                                else
+                                {
+                                    // 通常の描画
+                                    if (elementData.Points.Count > 0)
+                                    {
+                                        path.MoveTo(elementData.Points[0]);
+                                        for (int i = 1; i < elementData.Points.Count; i++)
+                                        {
+                                            path.LineTo(elementData.Points[i]);
+                                        }
+                                    }
+                                }
+
+                                var stroke = new DrawingStroke(path, paint);
+                                if (elementData.IsShape)
+                                {
+                                    stroke.IsShape = true;
+                                    stroke.ShapeType = elementData.ShapeType;
+                                }
+
+                                pageCanvas.DrawingElements.Add(stroke);
+                            }
+                        }
+                    }
+
+                    _savedDrawingData = null;
+                }
+
+                // PDFの読み込み
+                _pdfStream = File.OpenRead(filePath);
+                _pdfDocument = PdfDocument.Load(_pdfStream);
+                if (_pdfDocument != null)
+                {
+                    _pdfPages = new List<SKBitmap>(new SKBitmap[_pdfDocument.PageCount]);
+
+                    // ページの読み込み
+                    for (int pageIndex = 0; pageIndex < _pdfDocument.PageCount; pageIndex++)
+                    {
+                        try
+                        {
+                            // 低画質と高画質の両方を読み込む
+                            await LoadPdfPageAsync(pageIndex, LOW_DPI);
+                            await LoadPdfPageAsync(pageIndex, HIGH_DPI);
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine($"Error loading page {pageIndex}: {ex.Message}");
+                        }
+                    }
+                }
+
+                // ページキャンバスの更新
+                UpdatePageCanvases();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error loading PDF: {ex.Message}");
+                // エラー発生時はリソースを解放
+                ClearPdfPages();
+                _pdfDocument?.Dispose();
+                _pdfStream?.Dispose();
+                _pdfDocument = null;
+                _pdfStream = null;
+            }
+        }
+
+        private void ClearPdfPages()
+        {
+            // 描画要素を保持したまま、ビットマップのみを解放
+            foreach (var page in _pdfPages)
+            {
+                try
+                {
+                    page?.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"Error disposing page bitmap: {ex.Message}");
+                }
+            }
+            foreach (var page in _highQualityPages.Values)
+            {
+                try
+                {
+                    page?.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"Error disposing high quality page bitmap: {ex.Message}");
+                }
+            }
+
+            // ビットマップ関連のコレクションのみクリア
+            _pdfPages.Clear();
+            _highQualityPages.Clear();
+            _loadingPages.Clear();
+
+            // GCを明示的に呼び出してメモリを解放
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+        }
+
+        protected override void OnSizeAllocated(double width, double height)
+        {
+            base.OnSizeAllocated(width, height);
+            Debug.WriteLine($"OnSizeAllocated called with width: {width}, height: {height}");
+            
+            if (_pdfPages.Count > 0)
+            {
+                float totalHeight = 0;
+                float totalWidth = BASE_CANVAS_WIDTH * _currentScale;
+                foreach (var pageBitmap in _pdfPages)
+                {
+                    if (pageBitmap != null)
+                    {
+                        var pageScale = totalWidth / pageBitmap.Width;
+                        var destHeight = pageBitmap.Height * pageScale;
+                        totalHeight += destHeight + 20; // ページ間の余白を含める
+                    }
+                }
+                WidthRequest = totalWidth;
+                HeightRequest = totalHeight;
+                _totalHeight = totalHeight;
+                Debug.WriteLine($"Setting WidthRequest to: {totalWidth}, HeightRequest to: {totalHeight}");
+                
+                // ScrollViewのContentの高さを更新
+                UpdateScrollViewHeight();
+            }
+        }
+
+        public void Dispose()
+        {
+            try
+            {
+                // アプリ終了時に強制的に保存
+                _ = SaveDrawingDataAsync();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error during final save: {ex.Message}");
+            }
+
+            ClearPdfPages();
+            foreach (var pageCanvas in _pageCanvases)
+            {
+                pageCanvas.Dispose();
+            }
+            _pageCanvases.Clear();
+            _currentPaint?.Dispose();
+            _currentPath?.Dispose();
+            _backgroundImage?.Dispose();
+            _pdfDocument?.Dispose();
+            _pdfStream?.Dispose();
+        }
+
+        private bool PathsIntersect(SKPath path1, SKPath path2)
+        {
+            using (var path1Copy = new SKPath(path1))
+            using (var path2Copy = new SKPath(path2))
+            {
+                // パスの太さを考慮してバウンディングボックスを拡大
+                path1Copy.GetBounds(out var bounds1);
+                path2Copy.GetBounds(out var bounds2);
+                
+                float margin = Math.Max(_currentPaint.StrokeWidth, 10);
+                bounds1.Inflate(margin, margin);
+                bounds2.Inflate(margin, margin);
+
+                // まずバウンディングボックスで判定
+                if (!bounds1.IntersectsWith(bounds2))
+                {
+                    return false;
+                }
+
+                // より詳細な交差判定
+                using (var measure1 = new SKPathMeasure(path1Copy))
+                using (var measure2 = new SKPathMeasure(path2Copy))
+                {
+                    float length1 = measure1.Length;
+                    float length2 = measure2.Length;
+                    float step = 5.0f; // 5ピクセルごとにチェック
+
+                    for (float distance1 = 0; distance1 < length1; distance1 += step)
+                    {
+                        if (!measure1.GetPosition(distance1, out var point1))
+                            continue;
+                        
+                        for (float distance2 = 0; distance2 < length2; distance2 += step)
+                        {
+                            if (!measure2.GetPosition(distance2, out var point2))
+                                continue;
+
+                            float dx = point1.X - point2.X;
+                            float dy = point1.Y - point2.Y;
+                            float distance = (float)Math.Sqrt(dx * dx + dy * dy);
+                            
+                            if (distance <= margin)
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
+
+                return false;
+            }
+        }
+
+        public void ShowColorMenu(SKPoint position)
+        {
+            _lastRightClickPoint = position;
+            _isShowingContextMenu = true;
+            InvalidateSurface();
+        }
+
+        public void InitializeCacheDirectory(string noteName)
+        {
+            _tempDirectory = Path.Combine(
+                Path.GetTempPath(),
+                "AnkiPlus",
+                $"{noteName}_temp"
+            );
+
+            // キャッシュディレクトリの存在確認
+            if (!Directory.Exists(_tempDirectory))
+            {
+                Directory.CreateDirectory(_tempDirectory);
+                Directory.CreateDirectory(Path.Combine(_tempDirectory, PAGE_CACHE_DIR));
+            }
+            else
+            {
+                // キャッシュが存在する場合は、drawing_data.jsonを確認
+                var drawingDataPath = Path.Combine(_tempDirectory, DRAWING_DATA_FILE);
+                if (File.Exists(drawingDataPath))
+                {
+                    try
+                    {
+                        var json = File.ReadAllText(drawingDataPath);
+                        var drawingData = System.Text.Json.JsonSerializer.Deserialize<DrawingData>(json);
+                        if (drawingData?.PdfFilePath != null && File.Exists(drawingData.PdfFilePath))
+                        {
+                            // PDFファイルが存在する場合は読み込みを開始
+                            MainThread.BeginInvokeOnMainThread(async () =>
+                            {
+                                await LoadPdfAsync(drawingData.PdfFilePath);
+                            });
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"Error loading cached data: {ex.Message}");
+                    }
+                }
+            }
+        }
+
+        private async Task AutoSaveIfNeeded()
+        {
+            if ((DateTime.Now - _lastAutoSaveTime).TotalMilliseconds >= AUTO_SAVE_INTERVAL)
+            {
+                try
+                {
+                    await SaveDrawingDataAsync();
+                    _lastAutoSaveTime = DateTime.Now;
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"Error during auto-save: {ex.Message}");
+                }
+            }
+        }
+
+        public async Task OnBackButtonPressed()
+        {
+            try
+            {
+                // 戻るボタンが押された時に保存
+                await SaveDrawingDataAsync();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error during back button save: {ex.Message}");
+            }
+        }
+    }
+} 

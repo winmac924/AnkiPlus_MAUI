@@ -1,0 +1,61 @@
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="AnkiPlus_MAUI.Qa"
+             xmlns:skia="clr-namespace:SkiaSharp.Views.Maui.Controls;assembly=SkiaSharp.Views.Maui.Controls"
+             Title="問題">
+    
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <!-- 上部コンテンツを可変サイズに -->
+            <RowDefinition Height="Auto" />
+            <!-- ボタンの高さ分 -->
+        </Grid.RowDefinitions>
+        <VerticalStackLayout Grid.Row="0">
+        <!-- 問題表示エリア -->
+        <Grid x:Name="QuestionContainer">
+
+            <!-- 基本・穴埋めカード -->
+            <VerticalStackLayout x:Name="BasicCardLayout" IsVisible="False">
+                <Label Text="基本・穴埋めカード" FontSize="20" />
+                <WebView x:Name="FrontPreviewWebView" HeightRequest="250" />
+                <Grid>
+                    <BoxView x:Name="AnswerLine"
+                             BackgroundColor="Gray"
+                             HeightRequest="2"
+                             HorizontalOptions="Fill" />
+                </Grid>
+                <WebView x:Name="BackPreviewWebView" HeightRequest="300" IsVisible="False" />
+            </VerticalStackLayout>
+
+            <!-- 選択肢カード -->
+            <VerticalStackLayout x:Name="ChoiceCardLayout" IsVisible="False">
+                <WebView x:Name="ChoiceQuestionWebView"  HeightRequest="250"/>
+                <VerticalStackLayout x:Name="ChoiceContainer" />
+                <WebView x:Name="ChoiceExplanationWebView" HeightRequest="150" IsVisible="False" />
+            </VerticalStackLayout>
+
+            <!-- 画像穴埋めカード -->
+            <VerticalStackLayout x:Name="ImageFillCardLayout" IsVisible="False">
+                <Label Text="画像穴埋めカード" FontSize="20" />
+                <skia:SKCanvasView x:Name="CanvasView"
+                                   HeightRequest="300"
+                                   WidthRequest="500"
+                                   IsEnabled="True"
+                                   PaintSurface="OnCanvasViewPaintSurface"
+                                   EnableTouchEvents="False"/>
+            </VerticalStackLayout>
+        </Grid>
+    </VerticalStackLayout>
+        <!-- 正解・不正解ボタン -->
+        <HorizontalStackLayout Grid.Row="1" HorizontalOptions="Center" VerticalOptions="End" Margin="20">
+            <Button x:Name="ShowAnswerButton" Text="解答を表示" Clicked="OnShowAnswerClicked" HorizontalOptions="Center" VerticalOptions="End" />
+            <Grid>
+                <BoxView BackgroundColor="Gray" HeightRequest="2" HorizontalOptions="Fill" />
+            </Grid>
+            <Button x:Name="Correct" Text="正解" Clicked="OnCorrectClicked" IsVisible="False" Margin="0,0,30,0"/>
+            <Button x:Name="Incorrect" Text="不正解" Clicked="OnIncorrectClicked" IsVisible="False" Margin="30,0,0,0" FontSize="11"/>
+        </HorizontalStackLayout>
+    </Grid>
+</ContentPage>

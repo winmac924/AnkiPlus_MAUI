@@ -1,0 +1,47 @@
+﻿<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="AnkiPlus_MAUI.MainPage"
+             
+             Title="ノート">
+    <Grid>
+        <StackLayout>
+            <!-- タイトルバー -->
+            <Grid Padding="10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Label Text="ノート" FontSize="24" VerticalOptions="Center" />
+                <Button Text="新規ノート作成" Grid.Column="1" VerticalOptions="Center" Clicked="OnCreateNewNoteClicked"/>
+            </Grid>
+
+            <!-- ノートリスト -->
+            <CollectionView x:Name="NotesCollectionView" ItemsSource="{Binding Notes}">
+                <CollectionView.ItemsLayout>
+                    <GridItemsLayout Orientation="Vertical" x:Name="GridLayout"/>
+                </CollectionView.ItemsLayout>
+                <CollectionView.ItemTemplate>
+                    <DataTemplate>
+                        <Frame Padding="0" Margin="20" HasShadow="True" CornerRadius="10" WidthRequest="150" HeightRequest="200" IsEnabled="True">
+                            <Frame.GestureRecognizers>
+                                <!--タップ -->
+                                <TapGestureRecognizer Tapped="OnTapped" CommandParameter="{Binding}"/>
+                            </Frame.GestureRecognizers>
+                            <VerticalStackLayout>
+                                <!-- ノートタイトル（上部に表示） -->
+
+                                <Grid HeightRequest="200" WidthRequest="150">
+                                    <!-- Imageを中央配置 & 空白ができないように調整 -->
+                                    <Image Source="{Binding Icon}" Aspect="AspectFill" HorizontalOptions="Center" VerticalOptions="Center" WidthRequest="150" HeightRequest="200"/>
+                                    <!-- メニューボタン（Flyout表示） -->
+                                    <Label Text="{Binding Name}" FontSize="16" FontAttributes="Bold"
+                                   HorizontalOptions="Center" VerticalOptions="End"/>
+                                </Grid>
+                            </VerticalStackLayout>
+                        </Frame>
+                    </DataTemplate>
+                </CollectionView.ItemTemplate>
+            </CollectionView>
+        </StackLayout>
+    </Grid>
+</ContentPage>

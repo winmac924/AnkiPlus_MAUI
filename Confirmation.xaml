@@ -1,0 +1,28 @@
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="AnkiPlus_MAUI.Confirmation"
+             Title="確認画面">
+
+    <VerticalStackLayout Padding="20" Spacing="20">
+        <!-- ノート名 -->
+        <Label x:Name="NoteTitleLabel" Text="ノート名" FontSize="24" FontAttributes="Bold"
+               HorizontalOptions="Center"/>
+
+        <!-- 問題数の表示 -->
+        <Label x:Name="TotalQuestionsLabel" Text="問題数: 0"
+               FontSize="18" HorizontalOptions="Center"/>
+
+        <!-- 復習する問題数の入力 -->
+
+
+        <!-- 学習開始ボタン -->
+        <Button Text="学習を開始" Clicked="OnStartLearningClicked" HorizontalOptions="Center"/>
+        
+        <!-- カードの追加ボタン -->
+        <Button Text="カードの追加" Clicked="AddCardClicked" HorizontalOptions="Center"/>
+        
+        <!-- NotePage遷移ボタン -->
+        <Button Text="ノートモードへ" Clicked="ToNoteClicked" HorizontalOptions="Center"/>
+       
+    </VerticalStackLayout>
+</ContentPage>

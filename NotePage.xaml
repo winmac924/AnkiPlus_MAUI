@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:skia="clr-namespace:SkiaSharp.Views.Maui.Controls;assembly=SkiaSharp.Views.Maui.Controls"
+             xmlns:views="clr-namespace:AnkiPlus_MAUI.Views"
+             x:Class="AnkiPlus_MAUI.NotePage">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <Grid Grid.Row="0" BackgroundColor="LightGray">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- 中央のツール群 -->
+            <HorizontalStackLayout Grid.Column="1" Spacing="10" Padding="10" HorizontalOptions="Center">
+                <!-- 編集操作 -->
+                <Button Text="元に戻す" Clicked="OnUndoClicked"/>
+                <Button Text="やり直す" Clicked="OnRedoClicked"/>
+
+                <BoxView WidthRequest="1" Color="Gray" Margin="5,0"/>
+                <!-- 描画ツール -->
+                <Button Text="ペン" Clicked="OnPenClicked"/>
+                <Button Text="マーカー" Clicked="OnMarkerClicked"/>
+                <Button Text="消しゴム" Clicked="OnEraserClicked"/>
+                <Button Text="定規" Clicked="OnRulerClicked"/>
+
+                <!-- 色選択 -->
+                <BoxView WidthRequest="1" Color="Gray" Margin="5,0"/>
+                <VerticalStackLayout Spacing="5">
+                    <HorizontalStackLayout Spacing="5">
+                        <Frame x:Name="ColorFrame1" BorderColor="Black" Padding="0" WidthRequest="30" HeightRequest="30" Margin="0,0,5,0">
+                            <BoxView x:Name="ColorBox1" BackgroundColor="Black" WidthRequest="25" HeightRequest="25">
+                                <BoxView.GestureRecognizers>
+                                    <TapGestureRecognizer Tapped="OnColorBox1Tapped"/>
+                                </BoxView.GestureRecognizers>
+                            </BoxView>
+                        </Frame>
+                        <Frame x:Name="ColorFrame2" BorderColor="Black" Padding="0" WidthRequest="30" HeightRequest="30">
+                            <BoxView x:Name="ColorBox2" BackgroundColor="Red" WidthRequest="25" HeightRequest="25">
+                                <BoxView.GestureRecognizers>
+                                    <TapGestureRecognizer Tapped="OnColorBox2Tapped"/>
+                                </BoxView.GestureRecognizers>
+                            </BoxView>
+                        </Frame>
+                    </HorizontalStackLayout>
+                    <Picker x:Name="ColorPicker" WidthRequest="70" HeightRequest="20" 
+                            SelectedIndexChanged="OnColorPickerSelectedIndexChanged" IsVisible="False"/>
+                </VerticalStackLayout>
+            </HorizontalStackLayout>
+
+            <!-- 右側のファイル操作 -->
+            <HorizontalStackLayout Grid.Column="2" Spacing="10" Padding="10" HorizontalOptions="End">
+                <Button Text="インポート" Clicked="OnImportClicked"/>
+                <Button Text="保存" Clicked="OnSaveClicked"/>
+            </HorizontalStackLayout>
+        </Grid>
+
+        <ScrollView Grid.Row="1" VerticalOptions="Fill" x:Name="MainScrollView" IsEnabled="True">
+            <VerticalStackLayout x:Name="PageContainer" Spacing="20" Padding="10">
+                <!-- ページキャンバスがここに動的に追加されます -->
+            </VerticalStackLayout>
+        </ScrollView>
+    </Grid>
+</ContentPage>
