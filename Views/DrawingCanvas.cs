@@ -21,13 +21,13 @@ namespace AnkiPlus_MAUI.Views
         private const int VK_CONTROL = 0x11;
         private const float BASE_CANVAS_WIDTH = 800f;
         private const float MIN_SCALE = 0.5f;
-        private const float MAX_SCALE = 3.0f;
+        private const float MAX_SCALE = 2.0f;
         private const float HIGH_DPI = 100f;
         private const float LOW_DPI = 50f;
         private const float SELECTION_MARGIN = 20f;
         private const float SELECTION_MARGIN_SCALE_FACTOR = 1.5f;
-        private const float CONTEXT_MENU_WIDTH = 200;
-        private const float CONTEXT_MENU_HEIGHT = 150;
+        private const float CONTEXT_MENU_WIDTH = 260;
+        private const float CONTEXT_MENU_HEIGHT = 130;
         private const float CONTEXT_MENU_ITEM_HEIGHT = 40;
         private const float COLOR_BOX_SIZE = 30;
         private const float COLOR_BOX_MARGIN = 5;
@@ -77,6 +77,10 @@ namespace AnkiPlus_MAUI.Views
         private const int MAX_CACHED_PAGES = 3;
         private const int CACHE_CLEANUP_THRESHOLD = 5;
         private const float SCALE_THRESHOLD = 1.5f;
+
+        private const float PARTIAL_ERASER_WIDTH_SMALL = 10.0f;
+        private const float PARTIAL_ERASER_WIDTH_MEDIUM = 20.0f;
+        private const float PARTIAL_ERASER_WIDTH_LARGE = 30.0f;
 
         // 保存用のデータ構造
         public class DrawingData
@@ -213,6 +217,14 @@ namespace AnkiPlus_MAUI.Views
             Rectangle,
             Circle,
             Triangle
+        }
+
+        public enum DrawingTool
+        {
+            Pen,
+            Marker,
+            Eraser,
+            Text
         }
 
         public class DrawingStroke : IDisposable
@@ -456,39 +468,6 @@ namespace AnkiPlus_MAUI.Views
             // 距離が線分の長さの30%以下なら線分上にあるとみなす
             return distance <= lineLength * 0.3f;
         }
-
-        private bool IsStar(List<SKPoint> points)
-        {
-            if (points.Count < 5) return false;
-
-            // 5つの頂点を探す
-            var vertices = FindVertices(points, 5);
-            if (vertices.Count != 5) return false;
-
-            // 星の中心を計算
-            var center = new SKPoint(
-                vertices.Average(v => v.X),
-                vertices.Average(v => v.Y)
-            );
-
-            // 各点が星の辺からどれだけ離れているかをチェック
-            float maxDeviation = 0;
-            foreach (var point in points)
-            {
-                var minDistance = float.MaxValue;
-                for (int i = 0; i < 5; i++)
-                {
-                    var distance = DistanceToLine(point, vertices[i], center);
-                    minDistance = Math.Min(minDistance, distance);
-                }
-                maxDeviation = Math.Max(maxDeviation, minDistance);
-            }
-
-            // 最大偏差が星の辺の長さの平均の25%以下なら星と判定（15%から25%に緩和）
-            var avgSideLength = vertices.Average(v => Distance(v, center));
-            return maxDeviation < avgSideLength * 0.25f;
-        }
-
         private List<SKPoint> FindVertices(List<SKPoint> points, int count)
         {
             var vertices = new List<SKPoint>();
@@ -546,7 +525,7 @@ namespace AnkiPlus_MAUI.Views
             var size = Math.Max(width, height);
 
             // 最小サイズの制限を緩和
-            var minSize = 5.0f; // 最小サイズを5ピクセルに設定
+            var minSize = 2.0f; // 最小サイズを2ピクセルに設定
             if (size < minSize)
             {
                 size = minSize;
@@ -563,8 +542,28 @@ namespace AnkiPlus_MAUI.Views
                     var points = GetPointsFromPath(originalPath);
                     if (points.Count >= 2)
                     {
-                        correctedPath.MoveTo(points[0]);
-                        correctedPath.LineTo(points[points.Count - 1]);
+                        var startPoint = points[0];
+                        var endPoint = points[points.Count - 1];
+                        
+                        // 直線の長さを計算
+                        var lineLength = (float)Math.Sqrt(
+                            Math.Pow(endPoint.X - startPoint.X, 2) + 
+                            Math.Pow(endPoint.Y - startPoint.Y, 2)
+                        );
+                        
+                        // 最小長さを設定（スケーリングを考慮）
+                        var scaledMinSize = minSize / _currentScale;
+                        if (lineLength < scaledMinSize)
+                        {
+                            var angle = Math.Atan2(endPoint.Y - startPoint.Y, endPoint.X - startPoint.X);
+                            endPoint = new SKPoint(
+                                startPoint.X + (float)(scaledMinSize * Math.Cos(angle)),
+                                startPoint.Y + (float)(scaledMinSize * Math.Sin(angle))
+                            );
+                        }
+                        
+                        correctedPath.MoveTo(startPoint);
+                        correctedPath.LineTo(endPoint);
                     }
                     break;
 
@@ -602,17 +601,6 @@ namespace AnkiPlus_MAUI.Views
 
             return correctedPath;
         }
-
-        private async Task ShowColorPicker()
-        {
-            var result = await Application.Current.MainPage.DisplayActionSheet("色を選択", "キャンセル", null, _colors.Keys.ToArray());
-            if (result != "キャンセル" && result != null && _colors.TryGetValue(result, out var color))
-            {
-                _currentPaint.Color = color;
-                InvalidateSurface();
-            }
-        }
-
         public ScrollView ParentScrollView
         {
             get => _parentScrollView;
@@ -716,15 +704,12 @@ namespace AnkiPlus_MAUI.Views
             // パスのバウンディングボックスを取得
             path.GetBounds(out var bounds);
             
-            // ズームレベルに応じてマージンを調整
-            var scaledMargin = margin / (_currentScale * SELECTION_MARGIN_SCALE_FACTOR);
-            
             // マージンを含めた拡大バウンディングボックス
             var expandedBounds = new SKRect(
-                bounds.Left - scaledMargin,
-                bounds.Top - scaledMargin,
-                bounds.Right + scaledMargin,
-                bounds.Bottom + scaledMargin
+                bounds.Left - margin,
+                bounds.Top - margin,
+                bounds.Right + margin,
+                bounds.Bottom + margin
             );
 
             // まず拡大バウンディングボックスでの判定
@@ -733,7 +718,6 @@ namespace AnkiPlus_MAUI.Views
                 return false;
             }
 
-            // パスに沿って点との距離を計算
             using (var measure = new SKPathMeasure(path))
             {
                 float length = measure.Length;
@@ -746,7 +730,7 @@ namespace AnkiPlus_MAUI.Views
                     float dy = point.Y - pathPoint.Y;
                     float pointDistance = (float)Math.Sqrt(dx * dx + dy * dy);
                     
-                    if (pointDistance <= scaledMargin)
+                    if (pointDistance <= margin)
                     {
                         return true;
                     }
@@ -761,8 +745,6 @@ namespace AnkiPlus_MAUI.Views
             bool isCtrlPressed = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
             bool isRightClick = e.MouseButton == SKMouseButton.Right;
 
-            Debug.WriteLine($"Touch Event - Action: {e.ActionType}, Location: ({e.Location.X}, {e.Location.Y}), CtrlPressed: {isCtrlPressed}");
-
             // Ctrlキーが押されていない場合、ホイールイベントは処理しない
             if (e.ActionType == SKTouchAction.WheelChanged && !isCtrlPressed)
             {
@@ -772,15 +754,10 @@ namespace AnkiPlus_MAUI.Views
 
             // タッチ位置をキャンバス座標系に変換
             var info = CanvasSize;
-            var scale = Math.Min(info.Width / BASE_CANVAS_WIDTH, info.Height / (_totalHeight / _currentScale));
-            var centerX = (info.Width - (BASE_CANVAS_WIDTH * scale)) / 2;
-            var centerY = (info.Height - (_totalHeight * scale / _currentScale)) / 2;
-            var canvasX = (e.Location.X - centerX) / scale;
-            var canvasY = (e.Location.Y - centerY) / scale;
+            var centerX = (info.Width - (BASE_CANVAS_WIDTH * _currentScale)) / 2;
+            var canvasX = (e.Location.X - centerX) / _currentScale;
+            var canvasY = e.Location.Y / _currentScale;
             var transformedPoint = new SKPoint(canvasX, canvasY);
-
-            Debug.WriteLine($"Touch Transform - Scale: {scale}, CenterX: {centerX}, CenterY: {centerY}");
-            Debug.WriteLine($"Transformed Point - X: {transformedPoint.X}, Y: {transformedPoint.Y}");
 
             // タッチされたページを特定
             var pageCanvas = _pageCanvases.FirstOrDefault(p => 
@@ -794,19 +771,42 @@ namespace AnkiPlus_MAUI.Views
                 return;
             }
 
-            Debug.WriteLine($"Found Page Canvas - PageIndex: {pageCanvas.PageIndex}, Y: {pageCanvas.Y}, Height: {pageCanvas.Height}");
-
             // ページ内の相対座標を計算
             var pageRelativePoint = new SKPoint(
                 transformedPoint.X,
                 transformedPoint.Y - pageCanvas.Y / _currentScale
             );
 
-            Debug.WriteLine($"Page Relative Point - X: {pageRelativePoint.X}, Y: {pageRelativePoint.Y}");
-
             switch (e.ActionType)
             {
                 case SKTouchAction.Pressed:
+                    if (_currentTool == DrawingTool.Eraser && _currentEraserMode == EraserMode.Partial && _isShowingContextMenu)
+                    {
+                        // 部分削除の太さボタンのクリック判定
+                        for (int i = 0; i < 3; i++)
+                        {
+                            if (IsPointInPartialEraserWidthButton(e.Location, i))
+                            {
+                                switch (i)
+                                {
+                                    case 0:
+                                        _partialEraserWidth = PARTIAL_ERASER_WIDTH_SMALL;
+                                        break;
+                                    case 1:
+                                        _partialEraserWidth = PARTIAL_ERASER_WIDTH_MEDIUM;
+                                        break;
+                                    case 2:
+                                        _partialEraserWidth = PARTIAL_ERASER_WIDTH_LARGE;
+                                        break;
+                                }
+                                _isShowingContextMenu = false;
+                                InvalidateSurface();
+                                e.Handled = true;
+                                return;
+                            }
+                        }
+                    }
+
                     if (isRightClick)
                     {
                         _rightClickStartTime = DateTime.Now;
@@ -841,56 +841,79 @@ namespace AnkiPlus_MAUI.Views
                     }
                     else if (_isShowingContextMenu)
                     {
-                        // 太さ選択ボタンのチェック
-                        for (int i = 0; i < _strokeWidths.Count; i++)
+                        if (_currentTool == DrawingTool.Eraser)
                         {
-                            if (IsPointInStrokeWidthBox(e.Location, i))
+                            // 消しゴムモードの選択
+                            if (IsPointInEraserModeBox(e.Location, 0)) // 一括削除
                             {
-                                var width = _strokeWidths.Values.ElementAt(i);
-                                _currentPaint.StrokeWidth = width;
+                                _currentEraserMode = EraserMode.Full;
+                                _isShowingContextMenu = false;
+                                InvalidateSurface();
+                                e.Handled = true;
+                                return;
+                            }
+                            else if (IsPointInEraserModeBox(e.Location, 1)) // 部分削除
+                            {
+                                _currentEraserMode = EraserMode.Partial;
                                 _isShowingContextMenu = false;
                                 InvalidateSurface();
                                 e.Handled = true;
                                 return;
                             }
                         }
-
-                        // 透明度選択ボタンのチェック（マーカーツール時のみ）
-                        if (_currentTool == DrawingTool.Marker)
+                        else
                         {
-                            for (int i = 0; i < _transparencies.Count; i++)
+                            // 色選択ボタンのチェック
+                            for (int i = 0; i < _colors.Count; i++)
                             {
-                                if (IsPointInTransparencyBox(e.Location, i))
+                                if (IsPointInColorBox(e.Location, i))
                                 {
-                                    var transparency = _transparencies.Values.ElementAt(i);
-                                    _currentPaint.Color = _currentPaint.Color.WithAlpha((byte)(transparency * 255));
+                                    var color = _colors.Values.ElementAt(i);
+                                    if (_currentTool == DrawingTool.Marker)
+                                    {
+                                        // マーカーの場合は現在の透明度を保持
+                                        _currentPaint.Color = color.WithAlpha(_currentPaint.Color.Alpha);
+                                    }
+                                    else
+                                    {
+                                        _currentPaint.Color = color;
+                                    }
                                     _isShowingContextMenu = false;
                                     InvalidateSurface();
                                     e.Handled = true;
                                     return;
                                 }
                             }
-                        }
 
-                        // 色選択ボタンのチェック
-                        for (int i = 0; i < _colors.Count; i++)
-                        {
-                            if (IsPointInColorBox(e.Location, i))
+                            // 太さ選択ボタンのチェック
+                            for (int i = 0; i < _strokeWidths.Count; i++)
                             {
-                                var color = _colors.Values.ElementAt(i);
-                                if (_currentTool == DrawingTool.Marker)
+                                if (IsPointInStrokeWidthBox(e.Location, i))
                                 {
-                                    // マーカーの場合は現在の透明度を保持
-                                    _currentPaint.Color = color.WithAlpha(_currentPaint.Color.Alpha);
+                                    var width = _strokeWidths.Values.ElementAt(i);
+                                    _currentPaint.StrokeWidth = width;
+                                    _isShowingContextMenu = false;
+                                    InvalidateSurface();
+                                    e.Handled = true;
+                                    return;
                                 }
-                                else
+                            }
+
+                            // 透明度選択ボタンのチェック（マーカーツール時のみ）
+                            if (_currentTool == DrawingTool.Marker)
+                            {
+                                for (int i = 0; i < _transparencies.Count; i++)
                                 {
-                                    _currentPaint.Color = color;
+                                    if (IsPointInTransparencyBox(e.Location, i))
+                                    {
+                                        var transparency = _transparencies.Values.ElementAt(i);
+                                        _currentPaint.Color = _currentPaint.Color.WithAlpha((byte)(transparency * 255));
+                                        _isShowingContextMenu = false;
+                                        InvalidateSurface();
+                                        e.Handled = true;
+                                        return;
+                                    }
                                 }
-                                _isShowingContextMenu = false;
-                                InvalidateSurface();
-                                e.Handled = true;
-                                return;
                             }
                         }
 
@@ -901,12 +924,30 @@ namespace AnkiPlus_MAUI.Views
                     }
                     else if (_currentTool == DrawingTool.Eraser)
                     {
-                        // 消しゴムツールの処理
-                        pageCanvas.IsDrawing = true;
-                        pageCanvas.CurrentPath = new SKPath();
-                        pageCanvas.CurrentPath.MoveTo(pageRelativePoint);
-                        pageCanvas.LastPoint = pageRelativePoint;
+                        if (_currentEraserMode == EraserMode.Partial)
+                        {
+                            // 部分削除モードの処理
+                            pageCanvas.IsDrawing = true;
+                            pageCanvas.CurrentPath = new SKPath();
+                            pageCanvas.CurrentPath.MoveTo(pageRelativePoint);
+                            pageCanvas.LastPoint = pageRelativePoint;
+                            e.Handled = true;
+                        }
+                        else
+                        {
+                            // 一括削除モードの処理
+                            pageCanvas.IsDrawing = true;
+                            pageCanvas.CurrentPath = new SKPath();
+                            pageCanvas.CurrentPath.MoveTo(pageRelativePoint);
+                            pageCanvas.LastPoint = pageRelativePoint;
+                            e.Handled = true;
+                        }
+                    }
+                    else if (_currentTool == DrawingTool.Text)
+                    {
+                        AddTextBox(pageRelativePoint);
                         e.Handled = true;
+                        return;
                     }
                     else
                     {
@@ -941,55 +982,179 @@ namespace AnkiPlus_MAUI.Views
                     }
                     else if (pageCanvas.IsDrawing)
                     {
-                        // 通常の描画処理
-                        pageCanvas.CurrentPath.LineTo(pageRelativePoint);
-                        pageCanvas.LastPoint = pageRelativePoint;
-
-                        // 消しゴムツールの場合は即座に描画を更新
                         if (_currentTool == DrawingTool.Eraser)
                         {
-                            // 消しゴムのパスと交差する要素を削除
-                            var elementsToRemove = pageCanvas.DrawingElements
-                                .Where(element => PathsIntersect(pageCanvas.CurrentPath, element.DrawingPath))
-                                .ToList();
-
-                            foreach (var element in elementsToRemove)
+                            if (_currentEraserMode == EraserMode.Partial)
                             {
-                                pageCanvas.DrawingElements.Remove(element);
-                                _undoStack.Push((pageCanvas.PageIndex, element));
-                            }
+                                // 部分削除の処理
+                                pageCanvas.CurrentPath.LineTo(pageRelativePoint);
+                                pageCanvas.LastPoint = pageRelativePoint;
 
-                            // 新しいパスを開始
-                            pageCanvas.CurrentPath = new SKPath();
-                            pageCanvas.CurrentPath.MoveTo(pageRelativePoint);
+                                // 消しゴムのパスと交差する要素を部分的に削除
+                                foreach (var element in pageCanvas.DrawingElements.ToList())
+                                {
+                                    if (PathsIntersect(pageCanvas.CurrentPath, element.DrawingPath))
+                                    {
+                                        // 交差部分を検出して線を分割
+                                        var points = GetPointsFromPath(element.DrawingPath);
+                                        if (points.Count >= 2)
+                                        {
+                                            var newPaths = SplitPathAtIntersection(points, pageCanvas.CurrentPath, element);
+                                            if (newPaths.Count > 0)
+                                            {
+                                                // 元の要素を削除
+                                                pageCanvas.DrawingElements.Remove(element);
+                                                _undoStack.Push((pageCanvas.PageIndex, element));
+
+                                                // 分割されたパスを新しい要素として追加
+                                                foreach (var newPath in newPaths)
+                                                {
+                                                    var newElement = new DrawingStroke(newPath, element.DrawingPaint.Clone())
+                                                    {
+                                                        IsShape = element.IsShape,
+                                                        ShapeType = element.ShapeType
+                                                    };
+                                                    pageCanvas.DrawingElements.Add(newElement);
+                                                    _undoStack.Push((pageCanvas.PageIndex, newElement));
+                                                }
+                                            }
+                                            else
+                                            {
+                                                // 完全に消去される場合
+                                                pageCanvas.DrawingElements.Remove(element);
+                                                _undoStack.Push((pageCanvas.PageIndex, element));
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // 新しいパスを開始
+                                pageCanvas.CurrentPath = new SKPath();
+                                pageCanvas.CurrentPath.MoveTo(pageRelativePoint);
+                            }
+                            else
+                            {
+                                // 一括削除の処理
+                                pageCanvas.CurrentPath.LineTo(pageRelativePoint);
+                                pageCanvas.LastPoint = pageRelativePoint;
+
+                                // 消しゴムのパスと交差する要素を削除
+                                var elementsToRemove = pageCanvas.DrawingElements
+                                    .Where(element => PathsIntersect(pageCanvas.CurrentPath, element.DrawingPath))
+                                    .ToList();
+
+                                foreach (var element in elementsToRemove)
+                                {
+                                    pageCanvas.DrawingElements.Remove(element);
+                                    _undoStack.Push((pageCanvas.PageIndex, element));
+                                }
+
+                                // 新しいパスを開始
+                                pageCanvas.CurrentPath = new SKPath();
+                                pageCanvas.CurrentPath.MoveTo(pageRelativePoint);
+                            }
                             InvalidateSurface();
                         }
                         else
                         {
-                            // 一定時間動きが止まったら図形認識を開始
-                            var now = DateTime.Now;
-                            if ((now - _lastMoveTime).TotalMilliseconds > SHAPE_RECOGNITION_DELAY)
+                            // 通常の描画処理
+                            pageCanvas.CurrentPath.LineTo(pageRelativePoint);
+                            pageCanvas.LastPoint = pageRelativePoint;
+
+                            // 消しゴムツールの場合は即座に描画を更新
+                            if (_currentTool == DrawingTool.Eraser)
                             {
-                                if (!_isShapeRecognitionActive)
+                                // 消しゴムのパスと交差する要素を削除
+                                var elementsToRemove = pageCanvas.DrawingElements
+                                    .Where(element => PathsIntersect(pageCanvas.CurrentPath, element.DrawingPath))
+                                    .ToList();
+
+                                foreach (var element in elementsToRemove)
                                 {
-                                    _isShapeRecognitionActive = true;
-                                    var shapeType = RecognizeShape(pageCanvas.CurrentPath);
-                                    if (shapeType != ShapeType.None)
+                                    pageCanvas.DrawingElements.Remove(element);
+                                    _undoStack.Push((pageCanvas.PageIndex, element));
+                                }
+
+                                // 新しいパスを開始
+                                pageCanvas.CurrentPath = new SKPath();
+                                pageCanvas.CurrentPath.MoveTo(pageRelativePoint);
+                                InvalidateSurface();
+                            }
+                            else if (_currentTool == DrawingTool.Eraser && _currentEraserMode == EraserMode.Partial)
+                            {
+                                // 部分削除の処理
+                                pageCanvas.CurrentPath.LineTo(pageRelativePoint);
+                                pageCanvas.LastPoint = pageRelativePoint;
+
+                                // 消しゴムのパスと交差する要素を部分的に削除
+                                foreach (var element in pageCanvas.DrawingElements.ToList())
+                                {
+                                    if (PathsIntersect(pageCanvas.CurrentPath, element.DrawingPath))
                                     {
-                                        _previewPath = CreateCorrectedPath(pageCanvas.CurrentPath, shapeType);
+                                        // 交差部分を検出して線を分割
+                                        var points = GetPointsFromPath(element.DrawingPath);
+                                        if (points.Count >= 2)
+                                        {
+                                            var newPaths = SplitPathAtIntersection(points, pageCanvas.CurrentPath, element);
+                                            if (newPaths.Count > 0)
+                                            {
+                                                // 元の要素を削除
+                                                pageCanvas.DrawingElements.Remove(element);
+                                                _undoStack.Push((pageCanvas.PageIndex, element));
+
+                                                // 分割されたパスを新しい要素として追加
+                                                foreach (var newPath in newPaths)
+                                                {
+                                                    var newElement = new DrawingStroke(newPath, element.DrawingPaint.Clone())
+                                                    {
+                                                        IsShape = element.IsShape,
+                                                        ShapeType = element.ShapeType
+                                                    };
+                                                    pageCanvas.DrawingElements.Add(newElement);
+                                                    _undoStack.Push((pageCanvas.PageIndex, newElement));
+                                                }
+                                            }
+                                            else
+                                            {
+                                                // 完全に消去される場合
+                                                pageCanvas.DrawingElements.Remove(element);
+                                                _undoStack.Push((pageCanvas.PageIndex, element));
+                                            }
+                                        }
                                     }
                                 }
+
+                                // 新しいパスを開始
+                                pageCanvas.CurrentPath = new SKPath();
+                                pageCanvas.CurrentPath.MoveTo(pageRelativePoint);
                             }
                             else
                             {
-                                _isShapeRecognitionActive = false;
-                                _previewPath = null;
+                                // 一定時間動きが止まったら図形認識を開始
+                                var now = DateTime.Now;
+                                if ((now - _lastMoveTime).TotalMilliseconds > SHAPE_RECOGNITION_DELAY)
+                                {
+                                    if (!_isShapeRecognitionActive)
+                                    {
+                                        _isShapeRecognitionActive = true;
+                                        var shapeType = RecognizeShape(pageCanvas.CurrentPath);
+                                        if (shapeType != ShapeType.None)
+                                        {
+                                            _previewPath = CreateCorrectedPath(pageCanvas.CurrentPath, shapeType);
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    _isShapeRecognitionActive = false;
+                                    _previewPath = null;
+                                }
                             }
-                        }
 
-                        _lastMoveTime = DateTime.Now;
-                        InvalidateSurface();
-                        e.Handled = true;
+                            _lastMoveTime = DateTime.Now;
+                            InvalidateSurface();
+                            e.Handled = true;
+                        }
                     }
                     break;
 
@@ -1021,32 +1186,42 @@ namespace AnkiPlus_MAUI.Views
                     }
                     else if (pageCanvas.IsDrawing)
                     {
-                        if (_currentTool != DrawingTool.Eraser)
+                        if (_currentTool == DrawingTool.Eraser)
                         {
-                            // 図形認識が有効な場合は補正されたパスを使用
-                            var finalPath = _previewPath ?? pageCanvas.CurrentPath;
-                            var element = new DrawingStroke(finalPath, _currentPaint.Clone());
-                            
-                            // 図形認識が有効な場合は図形としてマーク
-                            if (_previewPath != null)
-                            {
-                                var shapeType = RecognizeShape(pageCanvas.CurrentPath);
-                                element.IsShape = true;
-                                element.ShapeType = shapeType;
-                            }
-                            
-                            pageCanvas.DrawingElements.Add(element);
-                            _undoStack.Push((pageCanvas.PageIndex, element));
-                            _redoStack.Clear();
-
-                            // 描画データを保存
-                            _ = SaveDrawingDataAsync();
+                            // 消しゴムの場合は何もしない（既に削除済み）
+                            pageCanvas.IsDrawing = false;
+                            pageCanvas.CurrentPath = null;
+                            InvalidateSurface();
                         }
-                        pageCanvas.IsDrawing = false;
-                        _isShapeRecognitionActive = false;
-                        _previewPath = null;
-                        InvalidateSurface();
-                        e.Handled = true;
+                        else
+                        {
+                            if (_currentTool != DrawingTool.Eraser)
+                            {
+                                // 図形認識が有効な場合は補正されたパスを使用
+                                var finalPath = _previewPath ?? pageCanvas.CurrentPath;
+                                var element = new DrawingStroke(finalPath, _currentPaint.Clone());
+                                
+                                // 図形認識が有効な場合は図形としてマーク
+                                if (_previewPath != null)
+                                {
+                                    var shapeType = RecognizeShape(pageCanvas.CurrentPath);
+                                    element.IsShape = true;
+                                    element.ShapeType = shapeType;
+                                }
+                                
+                                pageCanvas.DrawingElements.Add(element);
+                                _undoStack.Push((pageCanvas.PageIndex, element));
+                                _redoStack.Clear();
+
+                                // 描画データを保存
+                                _ = SaveDrawingDataAsync();
+                            }
+                            pageCanvas.IsDrawing = false;
+                            _isShapeRecognitionActive = false;
+                            _previewPath = null;
+                            InvalidateSurface();
+                            e.Handled = true;
+                        }
                     }
 
                     // タッチ操作後に自動保存をチェック
@@ -1056,12 +1231,10 @@ namespace AnkiPlus_MAUI.Views
                 case SKTouchAction.WheelChanged:
                     if (isCtrlPressed && _parentScrollView != null)
                     {
-                        var zoomFactor = e.WheelDelta > 0 ? 1.1f : 0.9f;
-                        var newScale = _currentScale * zoomFactor;
+                        var scale = e.WheelDelta > 0 ? 1.1f : 0.9f;
+                        var newScale = _currentScale * scale;
                         if (newScale >= MIN_SCALE && newScale <= MAX_SCALE)
                         {
-                            Debug.WriteLine($"Zoom Change - Old Scale: {_currentScale}, New Scale: {newScale}, Zoom Factor: {zoomFactor}");
-
                             // ズーム前の状態を保存
                             var oldScale = _currentScale;
                             var oldHeight = _totalHeight;
@@ -1069,33 +1242,25 @@ namespace AnkiPlus_MAUI.Views
                             var oldScrollY = _parentScrollView.ScrollY;
                             var mouseY = e.Location.Y;
 
-                            Debug.WriteLine($"Zoom State - Old Height: {oldHeight}, Viewport Height: {viewportHeight}, Old ScrollY: {oldScrollY}, MouseY: {mouseY}");
-
                             // マウス位置のキャンバス上の相対位置を計算
                             var pointY = oldScrollY + mouseY;
                             var relativeY = pointY / oldHeight;
 
-                            Debug.WriteLine($"Mouse Position - PointY: {pointY}, RelativeY: {relativeY}");
-
                             // スケールを更新
                             _currentScale = newScale;
-                            
-                            // ページキャンバスの更新を遅延させる
-                            MainThread.BeginInvokeOnMainThread(async () =>
+                            UpdatePageCanvases();
+
+                            // 新しいスクロール位置を計算
+                            var newPointY = _totalHeight * relativeY;
+                            var newScrollY = newPointY - (mouseY * (_totalHeight / oldHeight));
+
+                            // スクロール位置を更新
+                            MainThread.BeginInvokeOnMainThread(() =>
                             {
-                                await Task.Delay(50); // 50msの遅延を追加
-                                UpdatePageCanvases();
-                                
-                                // 新しいスクロール位置を計算
-                                var newPointY = _totalHeight * relativeY;
-                                var newScrollY = newPointY - (mouseY * (_totalHeight / oldHeight));
-
-                                Debug.WriteLine($"New Scroll Position - NewPointY: {newPointY}, NewScrollY: {newScrollY}");
-
-                                // スクロール位置を更新
-                                await _parentScrollView.ScrollToAsync(0, Math.Max(0, Math.Min(newScrollY, _totalHeight - viewportHeight)), false);
-                                InvalidateSurface();
+                                _parentScrollView.ScrollToAsync(0, Math.Max(0, Math.Min(newScrollY, _totalHeight - viewportHeight)), false);
                             });
+
+                            InvalidateSurface();
                         }
                         e.Handled = true;
                     }
@@ -1158,33 +1323,34 @@ namespace AnkiPlus_MAUI.Views
 
         protected override void OnPaintSurface(SKPaintSurfaceEventArgs e)
         {
+            base.OnPaintSurface(e);
             var canvas = e.Surface.Canvas;
-            canvas.Clear(SKColors.White);
-
+            
             // 高品質な描画を有効化
+            canvas.Clear(SKColors.White);
+            canvas.SetMatrix(SKMatrix.CreateIdentity());
+            
+            // アンチエイリアスとフィルタリングを設定
             var paint = new SKPaint
             {
                 IsAntialias = _currentScale <= 2.0f,
                 FilterQuality = SKFilterQuality.Low
             };
 
+            if (_pageCanvases.Count == 0)
+            {
+                return;
+            }
+
             var info = e.Info;
-            Debug.WriteLine($"Canvas Info - Width: {info.Width}, Height: {info.Height}, DPI: {info.Width / BASE_CANVAS_WIDTH}");
-
-            // スケーリング計算
-            var scale = Math.Min(info.Width / BASE_CANVAS_WIDTH, info.Height / (_totalHeight / _currentScale));
-            var centerX = (info.Width - (BASE_CANVAS_WIDTH * scale)) / 2;
-            var centerY = (info.Height - (_totalHeight * scale / _currentScale)) / 2;
-            
-            Debug.WriteLine($"Scaling Info - Scale: {scale}, CenterX: {centerX}, CenterY: {centerY}, CurrentScale: {_currentScale}");
-            Debug.WriteLine($"Total Height: {_totalHeight}, Base Canvas Width: {BASE_CANVAS_WIDTH}");
-
-            canvas.Translate(centerX, centerY);
+            var centerX = (info.Width - (BASE_CANVAS_WIDTH * _currentScale)) / 2;
+            canvas.Translate(centerX, 0);
 
             var scrollY = _parentScrollView?.ScrollY ?? 0;
             var viewportHeight = _parentScrollView?.Height ?? Height;
 
-            Debug.WriteLine($"Scroll Info - ScrollY: {scrollY}, ViewportHeight: {viewportHeight}");
+            Debug.WriteLine($"Canvas Info - Width: {info.Width}, Height: {info.Height}, Scale: {_currentScale}");
+            Debug.WriteLine($"Scroll Info - Y: {scrollY}, Viewport Height: {viewportHeight}");
 
             // 表示範囲内のページのみを描画
             var visiblePages = _pageCanvases
@@ -1192,22 +1358,16 @@ namespace AnkiPlus_MAUI.Views
                              p.Y > scrollY + viewportHeight * 2))
                 .ToList();
 
+            Debug.WriteLine($"Visible Pages Count: {visiblePages.Count}");
+
             foreach (var pageCanvas in visiblePages)
             {
                 if (pageCanvas.PageBitmap == null) continue;
 
-                Debug.WriteLine($"Page Canvas Info - PageIndex: {pageCanvas.PageIndex}, Y: {pageCanvas.Y}, Height: {pageCanvas.Height}");
-                Debug.WriteLine($"Bitmap Info - Width: {pageCanvas.PageBitmap.Width}, Height: {pageCanvas.PageBitmap.Height}");
+                Debug.WriteLine($"Drawing Page {pageCanvas.PageIndex} - Y: {pageCanvas.Y}, Height: {pageCanvas.Height}");
 
                 // ページの描画
-                var dest = new SKRect(
-                    0, 
-                    pageCanvas.Y * scale / _currentScale, 
-                    BASE_CANVAS_WIDTH * scale, 
-                    (pageCanvas.Y + pageCanvas.Height) * scale / _currentScale
-                );
-                Debug.WriteLine($"Drawing Rect - Left: {dest.Left}, Top: {dest.Top}, Right: {dest.Right}, Bottom: {dest.Bottom}");
-
+                var dest = new SKRect(0, pageCanvas.Y, BASE_CANVAS_WIDTH * _currentScale, pageCanvas.Y + pageCanvas.Height);
                 canvas.DrawBitmap(pageCanvas.PageBitmap, dest, paint);
 
                 // 描画要素の描画
@@ -1217,9 +1377,6 @@ namespace AnkiPlus_MAUI.Views
                     var elementPaint = element.DrawingPaint.Clone();
                     elementPaint.IsAntialias = _currentScale <= 2.0f;
                     
-                    Debug.WriteLine($"Drawing Element - IsShape: {element.IsShape}, ShapeType: {element.ShapeType}");
-                    Debug.WriteLine($"Element Paint - Color: {element.DrawingPaint.Color}, StrokeWidth: {element.DrawingPaint.StrokeWidth}");
-
                     // 図形の場合、適切なパスを作成
                     if (element.IsShape)
                     {
@@ -1247,26 +1404,37 @@ namespace AnkiPlus_MAUI.Views
                     }
                     else
                     {
+                        // 通常の描画の場合、元のパスをそのまま使用
                         path.AddPath(element.DrawingPath);
                     }
                     
                     // スケーリングと位置調整を適用
                     var matrix = SKMatrix.CreateIdentity();
-                    matrix = matrix.PostConcat(SKMatrix.CreateScale(scale, scale));
-                    matrix = matrix.PostConcat(SKMatrix.CreateTranslation(0, pageCanvas.Y * scale / _currentScale));
+                    matrix = matrix.PostConcat(SKMatrix.CreateScale(_currentScale, _currentScale));
+                    matrix = matrix.PostConcat(SKMatrix.CreateTranslation(0, pageCanvas.Y));
                     path.Transform(matrix);
                     
-                    // 図形の場合は線の太さを調整
-                    if (element.IsShape)
+                    // 線の太さを調整（最小値を設定）
+                    var minStrokeWidth = 1.0f;
+                    var originalStrokeWidth = element.DrawingPaint.StrokeWidth;
+                    var scaledStrokeWidth = Math.Max(originalStrokeWidth * _currentScale, minStrokeWidth);
+                    elementPaint.StrokeWidth = scaledStrokeWidth;
+                    
+                    // 色と透明度を正しく適用
+                    elementPaint.Color = element.DrawingPaint.Color;
+                    elementPaint.BlendMode = element.DrawingPaint.BlendMode;
+                    
+                    // マーカーの場合は透明度を適用
+                    if (element.DrawingPaint.BlendMode == SKBlendMode.SrcOver)
                     {
-                        elementPaint.StrokeWidth = Math.Max(element.DrawingPaint.StrokeWidth * scale, 1.0f);
+                        elementPaint.Color = element.DrawingPaint.Color;
                     }
-                    else
-                    {
-                        elementPaint.StrokeWidth = element.DrawingPaint.StrokeWidth * scale;
-                    }
-
-                    Debug.WriteLine($"Transformed Path Bounds - Left: {path.Bounds.Left}, Top: {path.Bounds.Top}, Right: {path.Bounds.Right}, Bottom: {path.Bounds.Bottom}");
+                    
+                    // パスのバウンディングボックスを取得してデバッグ出力
+                    path.GetBounds(out var pathBounds);
+                    Debug.WriteLine($"Drawing element - Type: {(element.IsShape ? element.ShapeType.ToString() : "Freehand")}, " +
+                                  $"Bounds: ({pathBounds.Left}, {pathBounds.Top}) to ({pathBounds.Right}, {pathBounds.Bottom}), " +
+                                  $"StrokeWidth: {scaledStrokeWidth}, Scale: {_currentScale}");
                     
                     canvas.DrawPath(path, elementPaint);
                 }
@@ -1284,23 +1452,43 @@ namespace AnkiPlus_MAUI.Views
                         currentPath.AddPath(pageCanvas.CurrentPath);
                     }
                     
-                    var currentPaint = _currentPaint.Clone();
-                    currentPaint.IsAntialias = _currentScale <= 2.0f;
-                    currentPaint.StrokeWidth = _currentPaint.StrokeWidth * scale;
-                    currentPaint.BlendMode = _currentPaint.BlendMode;
-
-                    Debug.WriteLine($"Current Path Info - PointCount: {currentPath.PointCount}");
-                    Debug.WriteLine($"Current Paint - Color: {currentPaint.Color}, StrokeWidth: {currentPaint.StrokeWidth}");
-
                     // スケーリングと位置調整を適用
                     var matrix = SKMatrix.CreateIdentity();
-                    matrix = matrix.PostConcat(SKMatrix.CreateScale(scale, scale));
-                    matrix = matrix.PostConcat(SKMatrix.CreateTranslation(0, pageCanvas.Y * scale / _currentScale));
+                    matrix = matrix.PostConcat(SKMatrix.CreateScale(_currentScale, _currentScale));
+                    matrix = matrix.PostConcat(SKMatrix.CreateTranslation(0, pageCanvas.Y));
                     currentPath.Transform(matrix);
-
-                    Debug.WriteLine($"Transformed Current Path Bounds - Left: {currentPath.Bounds.Left}, Top: {currentPath.Bounds.Top}, Right: {currentPath.Bounds.Right}, Bottom: {currentPath.Bounds.Bottom}");
-
+                    
+                    var currentPaint = _currentPaint.Clone();
+                    currentPaint.IsAntialias = _currentScale <= 2.0f;
+                    var currentStrokeWidth = Math.Max(_currentPaint.StrokeWidth * _currentScale, 1.0f);
+                    currentPaint.StrokeWidth = currentStrokeWidth;
+                    currentPaint.BlendMode = _currentPaint.BlendMode;
+                    
                     canvas.DrawPath(currentPath, currentPaint);
+                }
+
+                // 部分削除中の消しゴムの範囲を表示
+                if (_currentTool == DrawingTool.Eraser && _currentEraserMode == EraserMode.Partial && pageCanvas.IsDrawing)
+                {
+                    var eraserPaint = new SKPaint
+                    {
+                        Style = SKPaintStyle.Stroke,
+                        Color = SKColors.Red.WithAlpha(128),
+                        StrokeWidth = _partialEraserWidth * 2,
+                        IsAntialias = true,
+                        PathEffect = SKPathEffect.CreateDash(new float[] { 5, 5 }, 0)
+                    };
+
+                    var eraserPath = new SKPath();
+                    eraserPath.AddPath(pageCanvas.CurrentPath);
+                    
+                    // スケーリングと位置調整を適用
+                    var matrix = SKMatrix.CreateIdentity();
+                    matrix = matrix.PostConcat(SKMatrix.CreateScale(_currentScale, _currentScale));
+                    matrix = matrix.PostConcat(SKMatrix.CreateTranslation(0, pageCanvas.Y));
+                    eraserPath.Transform(matrix);
+                    
+                    canvas.DrawPath(eraserPath, eraserPaint);
                 }
             }
 
@@ -1311,18 +1499,18 @@ namespace AnkiPlus_MAUI.Views
                 {
                     Style = SKPaintStyle.Stroke,
                     Color = SKColors.Blue,
-                    StrokeWidth = 2,
+                    StrokeWidth = Math.Max(2 * _currentScale, 1.0f),
                     IsAntialias = _currentScale <= 2.0f,
                     PathEffect = SKPathEffect.CreateDash(new float[] { 5 * _currentScale, 5 * _currentScale }, 0)
                 };
 
                 var path = new SKPath();
                 path.AddPath(_selectedElement.DrawingPath);
-
+                
                 // スケーリングと位置調整を適用
                 var matrix = SKMatrix.CreateIdentity();
-                matrix = matrix.PostConcat(SKMatrix.CreateScale(scale, scale));
-                matrix = matrix.PostConcat(SKMatrix.CreateTranslation(0, _selectedPageCanvas.Y * scale / _currentScale));
+                matrix = matrix.PostConcat(SKMatrix.CreateScale(_currentScale, _currentScale));
+                matrix = matrix.PostConcat(SKMatrix.CreateTranslation(0, _selectedPageCanvas.Y));
                 path.Transform(matrix);
                 
                 canvas.DrawPath(path, highlightPaint);
@@ -1330,6 +1518,43 @@ namespace AnkiPlus_MAUI.Views
 
             // コンテキストメニューの表示
             DrawContextMenu(canvas);
+
+            // テキストボックスの描画
+            foreach (var textBox in _textBoxes)
+            {
+                // テキストボックスの背景
+                var backgroundPaint = new SKPaint
+                {
+                    Color = SKColors.White,
+                    Style = SKPaintStyle.Fill
+                };
+                canvas.DrawRect(textBox.Bounds, backgroundPaint);
+
+                // テキストボックスの枠
+                var borderPaint = new SKPaint
+                {
+                    Color = textBox.IsEditing ? SKColors.Blue : SKColors.Gray,
+                    Style = SKPaintStyle.Stroke,
+                    StrokeWidth = 1
+                };
+                canvas.DrawRect(textBox.Bounds, borderPaint);
+
+                // テキスト
+                var textPaint = new SKPaint
+                {
+                    Color = textBox.Color,
+                    TextSize = textBox.FontSize,
+                    IsAntialias = true
+                };
+
+                // テキストの描画位置を計算
+                var textBounds = new SKRect();
+                textPaint.MeasureText(textBox.Text, ref textBounds);
+                var x = textBox.Bounds.Left + TEXT_BOX_PADDING;
+                var y = textBox.Bounds.Top + textBox.Bounds.Height / 2 + textBounds.Height / 2;
+
+                canvas.DrawText(textBox.Text, x, y, textPaint);
+            }
         }
 
         private void DrawContextMenu(SKCanvas canvas)
@@ -1347,6 +1572,13 @@ namespace AnkiPlus_MAUI.Views
                 Style = SKPaintStyle.Stroke,
                 StrokeWidth = 1
             };
+            var textPaint = new SKPaint
+            {
+                Color = SKColors.Black,
+                TextSize = 14,
+                IsAntialias = true,
+                Typeface = SKTypeface.FromFamilyName("MS Gothic")
+            };
 
             var menuRect = new SKRect(
                 _lastRightClickPoint.X,
@@ -1358,120 +1590,167 @@ namespace AnkiPlus_MAUI.Views
             canvas.DrawRect(menuRect, menuPaint);
             canvas.DrawRect(menuRect, borderPaint);
 
-            // 色選択ボタンの描画（一番上）
-            float x = menuRect.Left + COLOR_BOX_MARGIN;
-            float y = menuRect.Top + (CONTEXT_MENU_ITEM_HEIGHT - COLOR_BOX_SIZE) / 2;
+            float y = menuRect.Top + 10;
 
-            foreach (var color in _colors.Values)
+            if (_currentTool == DrawingTool.Eraser)
             {
-                var colorBoxRect = new SKRect(x, y, x + COLOR_BOX_SIZE, y + COLOR_BOX_SIZE);
-                var colorBoxPaint = new SKPaint
+                // 消しゴムモードの選択
+                // 一括削除ボタン
+                var fullEraserRect = new SKRect(menuRect.Left + 10, y, menuRect.Right - 10, y + 30);
+                var fullEraserPaint = new SKPaint
                 {
-                    Color = color,
+                    Color = _currentEraserMode == EraserMode.Full ? SKColors.LightBlue : SKColors.White,
                     Style = SKPaintStyle.Fill
                 };
-                var colorBoxBorderPaint = new SKPaint
+                canvas.DrawRect(fullEraserRect, fullEraserPaint);
+                canvas.DrawRect(fullEraserRect, borderPaint);
+                canvas.DrawText("一括削除", fullEraserRect.Left + 5, y + 20, textPaint);
+
+                // 部分削除ボタン
+                y += 40;
+                var partialEraserRect = new SKRect(menuRect.Left + 10, y, menuRect.Right - 10, y + 30);
+                var partialEraserPaint = new SKPaint
                 {
-                    Color = SKColors.Black,
-                    Style = SKPaintStyle.Stroke,
-                    StrokeWidth = 1
+                    Color = _currentEraserMode == EraserMode.Partial ? SKColors.LightBlue : SKColors.White,
+                    Style = SKPaintStyle.Fill
                 };
+                canvas.DrawRect(partialEraserRect, partialEraserPaint);
+                canvas.DrawRect(partialEraserRect, borderPaint);
+                canvas.DrawText("部分削除", partialEraserRect.Left + 5, y + 20, textPaint);
 
-                canvas.DrawRect(colorBoxRect, colorBoxPaint);
-                canvas.DrawRect(colorBoxRect, colorBoxBorderPaint);
-
-                x += COLOR_BOX_SIZE + COLOR_BOX_MARGIN;
-                if (x + COLOR_BOX_SIZE > menuRect.Right)
+                // 部分削除時の太さ選択（部分削除モード時のみ表示）
+                if (_currentEraserMode == EraserMode.Partial)
                 {
-                    break;
-                }
-            }
-
-            // 透明度選択ボタンの描画（マーカーツール時のみ、色選択の下）
-            if (_currentTool == DrawingTool.Marker)
-            {
-                x = menuRect.Left + STROKE_WIDTH_BOX_MARGIN;
-                y = menuRect.Top + CONTEXT_MENU_ITEM_HEIGHT + (CONTEXT_MENU_ITEM_HEIGHT - STROKE_WIDTH_BOX_SIZE) / 2;
-
-                foreach (var transparency in _transparencies)
-                {
-                    var transparencyBoxRect = new SKRect(x, y, x + STROKE_WIDTH_BOX_SIZE, y + STROKE_WIDTH_BOX_SIZE);
-                    var transparencyBoxPaint = new SKPaint
+                    y += 40;
+                    var buttonWidth = (menuRect.Width - 40) / 3;
+                    
+                    // 小ボタン
+                    var smallRect = new SKRect(menuRect.Left + 10, y, menuRect.Left + 10 + buttonWidth, y + 30);
+                    var smallPaint = new SKPaint
                     {
-                        Color = SKColors.White,
+                        Color = _partialEraserWidth == PARTIAL_ERASER_WIDTH_SMALL ? SKColors.LightBlue : SKColors.White,
                         Style = SKPaintStyle.Fill
                     };
-                    var transparencyBoxBorderPaint = new SKPaint
+                    canvas.DrawRect(smallRect, smallPaint);
+                    canvas.DrawRect(smallRect, borderPaint);
+                    canvas.DrawText("小", smallRect.Left + (buttonWidth - textPaint.MeasureText("小")) / 2, y + 20, textPaint);
+
+                    // 中ボタン
+                    var mediumRect = new SKRect(smallRect.Right + 5, y, smallRect.Right + 5 + buttonWidth, y + 30);
+                    var mediumPaint = new SKPaint
+                    {
+                        Color = _partialEraserWidth == PARTIAL_ERASER_WIDTH_MEDIUM ? SKColors.LightBlue : SKColors.White,
+                        Style = SKPaintStyle.Fill
+                    };
+                    canvas.DrawRect(mediumRect, mediumPaint);
+                    canvas.DrawRect(mediumRect, borderPaint);
+                    canvas.DrawText("中", mediumRect.Left + (buttonWidth - textPaint.MeasureText("中")) / 2, y + 20, textPaint);
+
+                    // 大ボタン
+                    var largeRect = new SKRect(mediumRect.Right + 5, y, mediumRect.Right + 5 + buttonWidth, y + 30);
+                    var largePaint = new SKPaint
+                    {
+                        Color = _partialEraserWidth == PARTIAL_ERASER_WIDTH_LARGE ? SKColors.LightBlue : SKColors.White,
+                        Style = SKPaintStyle.Fill
+                    };
+                    canvas.DrawRect(largeRect, largePaint);
+                    canvas.DrawRect(largeRect, borderPaint);
+                    canvas.DrawText("大", largeRect.Left + (buttonWidth - textPaint.MeasureText("大")) / 2, y + 20, textPaint);
+                }
+            }
+            else
+            {
+                // 色選択ボタン
+                for (int i = 0; i < _colors.Count; i++)
+                {
+                    var color = _colors.Values.ElementAt(i);
+                    var colorRect = new SKRect(
+                        menuRect.Left + 10 + (i * (COLOR_BOX_SIZE + 5)),
+                        y,
+                        menuRect.Left + 10 + (i * (COLOR_BOX_SIZE + 5)) + COLOR_BOX_SIZE,
+                        y + COLOR_BOX_SIZE
+                    );
+                    var colorPaint = new SKPaint
+                    {
+                        Color = color,
+                        Style = SKPaintStyle.Fill
+                    };
+                    canvas.DrawRect(colorRect, colorPaint);
+                    canvas.DrawRect(colorRect, borderPaint);
+                }
+
+                // 太さ選択ボタン
+                y += COLOR_BOX_SIZE + 10;
+                for (int i = 0; i < _strokeWidths.Count; i++)
+                {
+                    var width = _strokeWidths.Values.ElementAt(i);
+                    var widthRect = new SKRect(
+                        menuRect.Left + 10 + (i * (STROKE_WIDTH_BOX_SIZE + 5)),
+                        y,
+                        menuRect.Left + 10 + (i * (STROKE_WIDTH_BOX_SIZE + 5)) + STROKE_WIDTH_BOX_SIZE,
+                        y + STROKE_WIDTH_BOX_SIZE
+                    );
+                    canvas.DrawRect(widthRect, menuPaint);
+                    canvas.DrawRect(widthRect, borderPaint);
+
+                    // 太さを表す線を描画
+                    var linePaint = new SKPaint
                     {
                         Color = SKColors.Black,
                         Style = SKPaintStyle.Stroke,
-                        StrokeWidth = 1
-                    };
-
-                    canvas.DrawRect(transparencyBoxRect, transparencyBoxPaint);
-                    canvas.DrawRect(transparencyBoxRect, transparencyBoxBorderPaint);
-
-                    // 透明度の表示
-                    var transparencyPaint = new SKPaint
-                    {
-                        Color = _markerPaint.Color.WithAlpha((byte)(transparency.Value * 255)),
-                        Style = SKPaintStyle.Fill,
+                        StrokeWidth = width,
                         IsAntialias = true
                     };
-                    canvas.DrawRect(transparencyBoxRect, transparencyPaint);
+                    var lineY = y + STROKE_WIDTH_BOX_SIZE / 2;
+                    canvas.DrawLine(
+                        widthRect.Left + 5,
+                        lineY,
+                        widthRect.Right - 5,
+                        lineY,
+                        linePaint
+                    );
+                }
 
-                    x += STROKE_WIDTH_BOX_SIZE + STROKE_WIDTH_BOX_MARGIN;
-                    if (x + STROKE_WIDTH_BOX_SIZE > menuRect.Right)
+                // マーカーの場合は透明度選択も表示
+                if (_currentTool == DrawingTool.Marker)
+                {
+                    y += STROKE_WIDTH_BOX_SIZE + 10;
+                    for (int i = 0; i < _transparencies.Count; i++)
                     {
-                        break;
+                        var transparency = _transparencies.Values.ElementAt(i);
+                        var transparencyRect = new SKRect(
+                            menuRect.Left + 10 + (i * (STROKE_WIDTH_BOX_SIZE + 5)),
+                            y,
+                            menuRect.Left + 10 + (i * (STROKE_WIDTH_BOX_SIZE + 5)) + STROKE_WIDTH_BOX_SIZE,
+                            y + STROKE_WIDTH_BOX_SIZE
+                        );
+                        canvas.DrawRect(transparencyRect, menuPaint);
+                        canvas.DrawRect(transparencyRect, borderPaint);
+
+                        // 透明度を表すグラデーションを描画
+                        var gradientPaint = new SKPaint
+                        {
+                            Style = SKPaintStyle.Fill,
+                            Shader = SKShader.CreateLinearGradient(
+                                new SKPoint(transparencyRect.Left, transparencyRect.Top),
+                                new SKPoint(transparencyRect.Right, transparencyRect.Top),
+                                new[] { SKColors.Black.WithAlpha((byte)(transparency * 255)), SKColors.Transparent },
+                                new[] { 0f, 1f },
+                                SKShaderTileMode.Clamp
+                            )
+                        };
+                        canvas.DrawRect(transparencyRect, gradientPaint);
                     }
                 }
             }
+        }
 
-            // 太さ選択ボタンの描画（一番下）
-            x = menuRect.Left + STROKE_WIDTH_BOX_MARGIN;
-            y = menuRect.Top + CONTEXT_MENU_ITEM_HEIGHT * (_currentTool == DrawingTool.Marker ? 2 : 1) + (CONTEXT_MENU_ITEM_HEIGHT - STROKE_WIDTH_BOX_SIZE) / 2;
-
-            var widths = _currentTool == DrawingTool.Marker ? _markerWidths : _strokeWidths;
-            foreach (var width in widths)
-            {
-                var widthBoxRect = new SKRect(x, y, x + STROKE_WIDTH_BOX_SIZE, y + STROKE_WIDTH_BOX_SIZE);
-                var widthBoxPaint = new SKPaint
-                {
-                    Color = SKColors.White,
-                    Style = SKPaintStyle.Fill
-                };
-                var widthBoxBorderPaint = new SKPaint
-                {
-                    Color = SKColors.Black,
-                    Style = SKPaintStyle.Stroke,
-                    StrokeWidth = 1
-                };
-
-                canvas.DrawRect(widthBoxRect, widthBoxPaint);
-                canvas.DrawRect(widthBoxRect, widthBoxBorderPaint);
-
-                // 太さの表示
-                var linePaint = new SKPaint
-                {
-                    Color = SKColors.Black,
-                    Style = SKPaintStyle.Stroke,
-                    StrokeWidth = width.Value,
-                    IsAntialias = true
-                };
-                canvas.DrawLine(
-                    widthBoxRect.Left + STROKE_WIDTH_BOX_MARGIN,
-                    widthBoxRect.MidY,
-                    widthBoxRect.Right - STROKE_WIDTH_BOX_MARGIN,
-                    widthBoxRect.MidY,
-                    linePaint);
-
-                x += STROKE_WIDTH_BOX_SIZE + STROKE_WIDTH_BOX_MARGIN;
-                if (x + STROKE_WIDTH_BOX_SIZE > menuRect.Right)
-                {
-                    break;
-                }
-            }
+        private string GetPartialEraserWidthText()
+        {
+            if (_partialEraserWidth == PARTIAL_ERASER_WIDTH_SMALL) return "小";
+            if (_partialEraserWidth == PARTIAL_ERASER_WIDTH_MEDIUM) return "中";
+            if (_partialEraserWidth == PARTIAL_ERASER_WIDTH_LARGE) return "大";
+            return "中";
         }
 
         private bool IsPointInColorBox(SKPoint point, int colorIndex)
@@ -1538,6 +1817,10 @@ namespace AnkiPlus_MAUI.Views
                 DrawingTool.Eraser => _eraserPaint.Clone(),
                 _ => _currentPaint
             };
+            if (tool != DrawingTool.Text)
+            {
+                FinishTextBoxEditing();
+            }
         }
 
         private void UpdateCurrentPaint(SKColor color, float strokeWidth, float? transparency = null)
@@ -1545,21 +1828,73 @@ namespace AnkiPlus_MAUI.Views
             switch (_currentTool)
             {
                 case DrawingTool.Pen:
-                    _penPaint.Color = color;
-                    _penPaint.StrokeWidth = strokeWidth;
+                    _currentPaint = _penPaint.Clone();
+                    _currentPaint.Color = color;
+                    _currentPaint.StrokeWidth = strokeWidth;
+                    if (transparency.HasValue)
+                    {
+                        _currentPaint.Color = new SKColor(color.Red, color.Green, color.Blue, (byte)(255 * transparency.Value));
+                    }
+                    break;
+
+                case DrawingTool.Marker:
+                    _currentPaint = _markerPaint.Clone();
+                    _currentPaint.Color = color;
+                    // マーカーの太さを_markerWidthsから取得
+                    if (_currentTool == DrawingTool.Marker)
+                    {
+                        var currentWidth = GetMarkerWidthText();
+                        if (_markerWidths.TryGetValue(currentWidth, out float markerWidth))
+                        {
+                            _currentPaint.StrokeWidth = markerWidth;
+                        }
+                    }
+                    else
+                    {
+                        _currentPaint.StrokeWidth = strokeWidth;
+                    }
+                    if (transparency.HasValue)
+                    {
+                        _currentPaint.Color = new SKColor(color.Red, color.Green, color.Blue, (byte)(255 * transparency.Value));
+                    }
+                    break;
+
+                case DrawingTool.Eraser:
+                    _currentPaint = _eraserPaint.Clone();
+                    _currentPaint.StrokeWidth = strokeWidth;
+                    break;
+
+                default:
                     _currentPaint = _penPaint.Clone();
                     break;
-                case DrawingTool.Marker:
-                    var alpha = transparency.HasValue ? (byte)(transparency.Value * 255) : (byte)128;
-                    _markerPaint.Color = color.WithAlpha(alpha);
-                    _markerPaint.StrokeWidth = strokeWidth;
-                    _currentPaint = _markerPaint.Clone();
-                    break;
-                case DrawingTool.Eraser:
-                    _eraserPaint.StrokeWidth = strokeWidth;
-                    _currentPaint = _eraserPaint.Clone();
-                    break;
             }
+        }
+
+        private string GetMarkerWidthText()
+        {
+            // 現在のマーカーの太さに最も近い値を探す
+            var currentWidth = _currentPaint.StrokeWidth;
+            var closestWidth = _markerWidths.OrderBy(x => Math.Abs(x.Value - currentWidth)).First();
+            return closestWidth.Key;
+        }
+
+        public void SetMarkerWidth(string width)
+        {
+            if (_markerWidths.TryGetValue(width, out float strokeWidth))
+            {
+                _markerPaint.StrokeWidth = strokeWidth;
+                UpdateCurrentPaint(_currentPaint.Color, strokeWidth);
+                InvalidateSurface();
+            }
+        }
+
+        public void CycleMarkerWidth()
+        {
+            var currentWidth = GetMarkerWidthText();
+            var widths = _markerWidths.Keys.ToList();
+            var currentIndex = widths.IndexOf(currentWidth);
+            var nextIndex = (currentIndex + 1) % widths.Count;
+            SetMarkerWidth(widths[nextIndex]);
         }
 
         public void SetPenColor(SKColor color)
@@ -2000,9 +2335,9 @@ namespace AnkiPlus_MAUI.Views
                             Radius = de.IsShape && de.ShapeType == ShapeType.Circle ? 
                                 Math.Max(de.DrawingPath.Bounds.Width, de.DrawingPath.Bounds.Height) / 2 : 0,
                             StartPoint = de.IsShape && de.ShapeType == ShapeType.Line ? 
-                                GetPointsFromPath(de.DrawingPath).First() : SKPoint.Empty,
+                                GetPointsFromPath(de.DrawingPath).FirstOrDefault() : SKPoint.Empty,
                             EndPoint = de.IsShape && de.ShapeType == ShapeType.Line ? 
-                                GetPointsFromPath(de.DrawingPath).Last() : SKPoint.Empty,
+                                GetPointsFromPath(de.DrawingPath).LastOrDefault() : SKPoint.Empty,
                             Vertices = de.IsShape && (de.ShapeType == ShapeType.Triangle || de.ShapeType == ShapeType.Rectangle) ? 
                                 GetPointsFromPath(de.DrawingPath) : new List<SKPoint>()
                         }).ToList()
@@ -2010,14 +2345,33 @@ namespace AnkiPlus_MAUI.Views
                     PenSettings = new Dictionary<string, float>
                     {
                         { "StrokeWidth", _penPaint.StrokeWidth },
-                        { "Color", BitConverter.ToUInt32(new byte[] { _penPaint.Color.Alpha, _penPaint.Color.Red, _penPaint.Color.Green, _penPaint.Color.Blue }, 0) }
+                        { "Color", BitConverter.ToUInt32(new byte[] { _penPaint.Color.Blue, _penPaint.Color.Green, _penPaint.Color.Red, _penPaint.Color.Alpha }, 0) }
                     },
                     MarkerSettings = new Dictionary<string, float>
                     {
                         { "StrokeWidth", _markerPaint.StrokeWidth },
-                        { "Color", BitConverter.ToUInt32(new byte[] { _markerPaint.Color.Alpha, _markerPaint.Color.Red, _markerPaint.Color.Green, _markerPaint.Color.Blue }, 0) }
+                        { "Color", BitConverter.ToUInt32(new byte[] { _markerPaint.Color.Blue, _markerPaint.Color.Green, _markerPaint.Color.Red, _markerPaint.Color.Alpha }, 0) }
                     }
                 };
+
+                // 直線の開始点と終了点が同じ場合は、終了点を少しずらす
+                foreach (var page in drawingData.Pages)
+                {
+                    foreach (var element in page.DrawingElements)
+                    {
+                        if (element.IsShape && element.ShapeType == ShapeType.Line)
+                        {
+                            if (element.StartPoint.Equals(element.EndPoint))
+                            {
+                                // 終了点を開始点から少しずらす
+                                element.EndPoint = new SKPoint(
+                                    element.StartPoint.X + 1,
+                                    element.StartPoint.Y + 1
+                                );
+                            }
+                        }
+                    }
+                }
 
                 var json = System.Text.Json.JsonSerializer.Serialize(drawingData);
                 var savePath = customPath ?? Path.Combine(_tempDirectory, DRAWING_DATA_FILE);
@@ -2174,14 +2528,33 @@ namespace AnkiPlus_MAUI.Views
             {
                 var pathVerb = SKPathVerb.Move;
                 var pathPoints = new SKPoint[4];
+                var lastPoint = SKPoint.Empty;
                 
                 while ((pathVerb = iterator.Next(pathPoints)) != SKPathVerb.Done)
                 {
                     switch (pathVerb)
                     {
                         case SKPathVerb.Move:
+                            lastPoint = pathPoints[0];
+                            points.Add(lastPoint);
+                            break;
                         case SKPathVerb.Line:
-                            points.Add(pathPoints[0]);
+                            lastPoint = pathPoints[1];
+                            points.Add(lastPoint);
+                            break;
+                        case SKPathVerb.Quad:
+                            lastPoint = pathPoints[2];
+                            points.Add(lastPoint);
+                            break;
+                        case SKPathVerb.Cubic:
+                            lastPoint = pathPoints[3];
+                            points.Add(lastPoint);
+                            break;
+                        case SKPathVerb.Close:
+                            if (points.Count > 0)
+                            {
+                                points.Add(points[0]); // 閉じたパスの場合は最初の点を追加
+                            }
                             break;
                     }
                 }
@@ -2444,59 +2817,63 @@ namespace AnkiPlus_MAUI.Views
             _backgroundImage?.Dispose();
             _pdfDocument?.Dispose();
             _pdfStream?.Dispose();
+            foreach (var textBox in _textBoxes)
+            {
+                textBox.Dispose();
+            }
+            _textBoxes.Clear();
         }
 
         private bool PathsIntersect(SKPath path1, SKPath path2)
         {
-            using (var path1Copy = new SKPath(path1))
-            using (var path2Copy = new SKPath(path2))
+            if (path1 == null || path2 == null) return false;
+
+            // パスのバウンディングボックスを取得
+            path1.GetBounds(out var bounds1);
+            path2.GetBounds(out var bounds2);
+
+            // マージンを設定（消しゴムの太さを考慮）
+            float margin = _currentEraserMode == EraserMode.Partial ? _partialEraserWidth : _eraserPaint.StrokeWidth;
+            bounds1.Inflate(margin, margin);
+            bounds2.Inflate(margin, margin);
+
+            // バウンディングボックスが交差しない場合はfalse
+            if (!bounds1.IntersectsWith(bounds2))
             {
-                // パスの太さを考慮してバウンディングボックスを拡大
-                path1Copy.GetBounds(out var bounds1);
-                path2Copy.GetBounds(out var bounds2);
-                
-                float margin = Math.Max(_currentPaint.StrokeWidth, 10);
-                bounds1.Inflate(margin, margin);
-                bounds2.Inflate(margin, margin);
+                return false;
+            }
 
-                // まずバウンディングボックスで判定
-                if (!bounds1.IntersectsWith(bounds2))
+            // より詳細な交差判定
+            using (var measure1 = new SKPathMeasure(path1))
+            using (var measure2 = new SKPathMeasure(path2))
+            {
+                float length1 = measure1.Length;
+                float length2 = measure2.Length;
+                float step = 5.0f; // 5ピクセルごとにチェック
+
+                for (float distance1 = 0; distance1 < length1; distance1 += step)
                 {
-                    return false;
-                }
+                    if (!measure1.GetPosition(distance1, out var point1))
+                        continue;
 
-                // より詳細な交差判定
-                using (var measure1 = new SKPathMeasure(path1Copy))
-                using (var measure2 = new SKPathMeasure(path2Copy))
-                {
-                    float length1 = measure1.Length;
-                    float length2 = measure2.Length;
-                    float step = 5.0f; // 5ピクセルごとにチェック
-
-                    for (float distance1 = 0; distance1 < length1; distance1 += step)
+                    for (float distance2 = 0; distance2 < length2; distance2 += step)
                     {
-                        if (!measure1.GetPosition(distance1, out var point1))
+                        if (!measure2.GetPosition(distance2, out var point2))
                             continue;
-                        
-                        for (float distance2 = 0; distance2 < length2; distance2 += step)
-                        {
-                            if (!measure2.GetPosition(distance2, out var point2))
-                                continue;
 
-                            float dx = point1.X - point2.X;
-                            float dy = point1.Y - point2.Y;
-                            float distance = (float)Math.Sqrt(dx * dx + dy * dy);
-                            
-                            if (distance <= margin)
-                            {
-                                return true;
-                            }
+                        float dx = point1.X - point2.X;
+                        float dy = point1.Y - point2.Y;
+                        float distance = (float)Math.Sqrt(dx * dx + dy * dy);
+
+                        if (distance <= margin)
+                        {
+                            return true;
                         }
                     }
                 }
-
-                return false;
             }
+
+            return false;
         }
 
         public void ShowColorMenu(SKPoint position)
@@ -2574,6 +2951,384 @@ namespace AnkiPlus_MAUI.Views
             {
                 Debug.WriteLine($"Error during back button save: {ex.Message}");
             }
+        }
+
+        // 消しゴムのモードを定義
+        public enum EraserMode
+        {
+            Full,    // 一括削除
+            Partial  // 部分削除
+        }
+
+        private EraserMode _currentEraserMode = EraserMode.Full;
+        private float _partialEraserWidth = PARTIAL_ERASER_WIDTH_MEDIUM;
+
+        private bool IsPointInEraserModeBox(SKPoint point, int modeIndex)
+        {
+            if (!_isShowingContextMenu || _currentTool != DrawingTool.Eraser) return false;
+
+            var menuRect = new SKRect(
+                _lastRightClickPoint.X,
+                _lastRightClickPoint.Y,
+                _lastRightClickPoint.X + CONTEXT_MENU_WIDTH,
+                _lastRightClickPoint.Y + CONTEXT_MENU_HEIGHT
+            );
+
+            float y = menuRect.Top + 10 + (modeIndex * 40);
+            var modeRect = new SKRect(menuRect.Left + 10, y, menuRect.Right - 10, y + 30);
+            return modeRect.Contains(point);
+        }
+
+        private List<SKPath> SplitPathAtIntersection(List<SKPoint> points, SKPath eraserPath, DrawingStroke element)
+        {
+            var result = new List<SKPath>();
+            var margin = _partialEraserWidth;
+
+            // 図形の場合の特別処理
+            if (element.IsShape)
+            {
+                switch (element.ShapeType)
+                {
+                    case ShapeType.Line:
+                        // 直線の場合
+                        if (points.Count >= 2)
+                        {
+                            var startPoint = points[0];
+                            var endPoint = points[points.Count - 1];
+                            var lineLength = Distance(startPoint, endPoint);
+                            
+                            // 消しゴムのパスと直線の交点を見つける
+                            bool startIntersects = IsPointNearPath(eraserPath, startPoint, margin);
+                            bool endIntersects = IsPointNearPath(eraserPath, endPoint, margin);
+                            bool middleIntersects = false;
+                            
+                            // 直線の中間点をチェック
+                            var steps = Math.Max(10, (int)(lineLength / margin));
+                            for (int i = 1; i < steps - 1; i++)
+                            {
+                                var t = i / (float)steps;
+                                var point = new SKPoint(
+                                    startPoint.X + (endPoint.X - startPoint.X) * t,
+                                    startPoint.Y + (endPoint.Y - startPoint.Y) * t
+                                );
+                                if (IsPointNearPath(eraserPath, point, margin))
+                                {
+                                    middleIntersects = true;
+                                    break;
+                                }
+                            }
+
+                            // 交点の状態に応じて分割
+                            if (!startIntersects && !endIntersects && !middleIntersects)
+                            {
+                                // 交点なし - 元の直線をそのまま返す
+                                var path = new SKPath();
+                                path.MoveTo(startPoint);
+                                path.LineTo(endPoint);
+                                result.Add(path);
+                            }
+                            else if (startIntersects && endIntersects)
+                            {
+                                // 両端が交差 - 直線を削除
+                            }
+                            else if (startIntersects || endIntersects || middleIntersects)
+                            {
+                                // 部分的に交差 - 最も近い非交差点を見つけて分割
+                                var nonIntersectingPoints = new List<SKPoint>();
+                                for (int i = 0; i <= steps; i++)
+                                {
+                                    var t = i / (float)steps;
+                                    var point = new SKPoint(
+                                        startPoint.X + (endPoint.X - startPoint.X) * t,
+                                        startPoint.Y + (endPoint.Y - startPoint.Y) * t
+                                    );
+                                    if (!IsPointNearPath(eraserPath, point, margin))
+                                    {
+                                        nonIntersectingPoints.Add(point);
+                                    }
+                                }
+
+                                // 非交差点から新しい線分を作成
+                                for (int i = 0; i < nonIntersectingPoints.Count - 1; i++)
+                                {
+                                    if (Distance(nonIntersectingPoints[i], nonIntersectingPoints[i + 1]) > margin)
+                                    {
+                                        var path = new SKPath();
+                                        path.MoveTo(nonIntersectingPoints[i]);
+                                        path.LineTo(nonIntersectingPoints[i + 1]);
+                                        result.Add(path);
+                                    }
+                                }
+                            }
+                        }
+                        break;
+
+                    // 他の図形タイプの処理（必要に応じて追加）
+                    default:
+                        // 通常の処理を適用
+                        var currentPath = new SKPath();
+                        var isErasing = false;
+                        var lastPoint = SKPoint.Empty;
+
+                        for (int i = 0; i < points.Count; i++)
+                        {
+                            var point = points[i];
+                            var isIntersecting = IsPointNearPath(eraserPath, point, margin);
+
+                            if (!isIntersecting)
+                            {
+                                if (!isErasing)
+                                {
+                                    if (currentPath.PointCount == 0)
+                                    {
+                                        currentPath.MoveTo(point);
+                                    }
+                                    else
+                                    {
+                                        currentPath.LineTo(point);
+                                    }
+                                }
+                                else
+                                {
+                                    if (currentPath.PointCount > 0)
+                                    {
+                                        result.Add(currentPath);
+                                        currentPath = new SKPath();
+                                        currentPath.MoveTo(point);
+                                    }
+                                    isErasing = false;
+                                }
+                            }
+                            else
+                            {
+                                if (!isErasing)
+                                {
+                                    if (currentPath.PointCount > 0)
+                                    {
+                                        result.Add(currentPath);
+                                        currentPath = new SKPath();
+                                    }
+                                    isErasing = true;
+                                }
+                            }
+                            lastPoint = point;
+                        }
+
+                        if (currentPath.PointCount > 0 && !isErasing)
+                        {
+                            result.Add(currentPath);
+                        }
+                        break;
+                }
+            }
+            else
+            {
+                // 通常の描画要素の処理
+                var currentPath = new SKPath();
+                var isErasing = false;
+                var lastPoint = SKPoint.Empty;
+
+                // 短い線分の場合の特別処理
+                if (points.Count == 2 && Distance(points[0], points[1]) < margin * 2)
+                {
+                    // 線分の両端のいずれかが消しゴムと交差していれば削除
+                    if (IsPointNearPath(eraserPath, points[0], margin) || 
+                        IsPointNearPath(eraserPath, points[1], margin))
+                    {
+                        return result; // 空のリストを返して削除
+                    }
+                    else
+                    {
+                        // 交差していない場合は保持
+                        currentPath.MoveTo(points[0]);
+                        currentPath.LineTo(points[1]);
+                        result.Add(currentPath);
+                        return result;
+                    }
+                }
+
+                for (int i = 0; i < points.Count; i++)
+                {
+                    var point = points[i];
+                    var isIntersecting = IsPointNearPath(eraserPath, point, margin);
+
+                    if (!isIntersecting)
+                    {
+                        if (!isErasing)
+                        {
+                            if (currentPath.PointCount == 0)
+                            {
+                                currentPath.MoveTo(point);
+                            }
+                            else
+                            {
+                                currentPath.LineTo(point);
+                            }
+                        }
+                        else
+                        {
+                            if (currentPath.PointCount > 0)
+                            {
+                                result.Add(currentPath);
+                                currentPath = new SKPath();
+                                currentPath.MoveTo(point);
+                            }
+                            isErasing = false;
+                        }
+                    }
+                    else
+                    {
+                        if (!isErasing)
+                        {
+                            if (currentPath.PointCount > 0)
+                            {
+                                result.Add(currentPath);
+                                currentPath = new SKPath();
+                            }
+                            isErasing = true;
+                        }
+                    }
+                    lastPoint = point;
+                }
+
+                if (currentPath.PointCount > 0 && !isErasing)
+                {
+                    result.Add(currentPath);
+                }
+            }
+
+            return result;
+        }
+
+        public void SetPartialEraserWidth(string size)
+        {
+            switch (size.ToLower())
+            {
+                case "small":
+                    _partialEraserWidth = PARTIAL_ERASER_WIDTH_SMALL;
+                    break;
+                case "medium":
+                    _partialEraserWidth = PARTIAL_ERASER_WIDTH_MEDIUM;
+                    break;
+                case "large":
+                    _partialEraserWidth = PARTIAL_ERASER_WIDTH_LARGE;
+                    break;
+            }
+            InvalidateSurface();
+        }
+
+        public void CyclePartialEraserWidth()
+        {
+            if (_partialEraserWidth == PARTIAL_ERASER_WIDTH_SMALL)
+            {
+                _partialEraserWidth = PARTIAL_ERASER_WIDTH_MEDIUM;
+            }
+            else if (_partialEraserWidth == PARTIAL_ERASER_WIDTH_MEDIUM)
+            {
+                _partialEraserWidth = PARTIAL_ERASER_WIDTH_LARGE;
+            }
+            else
+            {
+                _partialEraserWidth = PARTIAL_ERASER_WIDTH_SMALL;
+            }
+            InvalidateSurface();
+        }
+
+        private bool IsPointInPartialEraserWidthButton(SKPoint point, int buttonIndex)
+        {
+            if (!_isShowingContextMenu || _currentTool != DrawingTool.Eraser || _currentEraserMode != EraserMode.Partial)
+                return false;
+
+            var menuRect = new SKRect(
+                _lastRightClickPoint.X,
+                _lastRightClickPoint.Y,
+                _lastRightClickPoint.X + CONTEXT_MENU_WIDTH,
+                _lastRightClickPoint.Y + CONTEXT_MENU_HEIGHT
+            );
+
+            float y = menuRect.Top + 90; // 部分削除ボタンの下の位置
+            var buttonWidth = (menuRect.Width - 40) / 3;
+            var buttonRect = new SKRect(
+                menuRect.Left + 10 + (buttonIndex * (buttonWidth + 5)),
+                y,
+                menuRect.Left + 10 + (buttonIndex * (buttonWidth + 5)) + buttonWidth,
+                y + 30
+            );
+
+            return buttonRect.Contains(point);
+        }
+
+        public class TextBox
+        {
+            public SKRect Bounds { get; set; }
+            public string Text { get; set; }
+            public SKColor Color { get; set; }
+            public float FontSize { get; set; }
+            public bool IsEditing { get; set; }
+            public SKPaint Paint { get; set; }
+
+            public TextBox(SKRect bounds, SKColor color, float fontSize)
+            {
+                Bounds = bounds;
+                Text = "";
+                Color = color;
+                FontSize = fontSize;
+                IsEditing = true;
+                Paint = new SKPaint
+                {
+                    Color = color,
+                    TextSize = fontSize,
+                    IsAntialias = true
+                };
+            }
+
+            public void Dispose()
+            {
+                Paint?.Dispose();
+            }
+        }
+
+        private TextBox _currentTextBox;
+        private List<TextBox> _textBoxes = new List<TextBox>();
+        private const float DEFAULT_FONT_SIZE = 20f;
+        private const float TEXT_BOX_PADDING = 10f;
+
+        public void AddTextBox(SKPoint position)
+        {
+            var bounds = new SKRect(
+                position.X,
+                position.Y,
+                position.X + 200, // デフォルトの幅
+                position.Y + 50   // デフォルトの高さ
+            );
+
+            _currentTextBox = new TextBox(bounds, _currentPaint.Color, DEFAULT_FONT_SIZE);
+            _textBoxes.Add(_currentTextBox);
+            InvalidateSurface();
+        }
+
+        public void UpdateTextBoxText(string text)
+        {
+            if (_currentTextBox != null)
+            {
+                _currentTextBox.Text = text;
+                InvalidateSurface();
+            }
+        }
+
+        public void FinishTextBoxEditing()
+        {
+            if (_currentTextBox != null)
+            {
+                _currentTextBox.IsEditing = false;
+                _currentTextBox = null;
+                InvalidateSurface();
+            }
+        }
+
+        private bool IsPointInTextBox(SKPoint point, TextBox textBox)
+        {
+            return textBox.Bounds.Contains(point);
         }
     }
 } 

@@ -3,7 +3,8 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:skia="clr-namespace:SkiaSharp.Views.Maui.Controls;assembly=SkiaSharp.Views.Maui.Controls"
              xmlns:views="clr-namespace:AnkiPlus_MAUI.Views"
-             x:Class="AnkiPlus_MAUI.NotePage">
+             x:Class="AnkiPlus_MAUI.NotePage"
+             NavigationPage.HasNavigationBar="False">
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -28,12 +29,12 @@
                 <Button Text="ペン" Clicked="OnPenClicked"/>
                 <Button Text="マーカー" Clicked="OnMarkerClicked"/>
                 <Button Text="消しゴム" Clicked="OnEraserClicked"/>
-                <Button Text="定規" Clicked="OnRulerClicked"/>
+                <Button Text="テキスト" Clicked="OnTextClicked" IsEnabled="False"/>
 
                 <!-- 色選択 -->
                 <BoxView WidthRequest="1" Color="Gray" Margin="5,0"/>
                 <VerticalStackLayout Spacing="5">
-                    <HorizontalStackLayout Spacing="5">
+                    <HorizontalStackLayout Spacing="5" IsVisible="False">
                         <Frame x:Name="ColorFrame1" BorderColor="Black" Padding="0" WidthRequest="30" HeightRequest="30" Margin="0,0,5,0">
                             <BoxView x:Name="ColorBox1" BackgroundColor="Black" WidthRequest="25" HeightRequest="25">
                                 <BoxView.GestureRecognizers>

@@ -87,7 +87,7 @@ namespace AnkiPlus_MAUI
         {
             foreach (var canvas in _drawingCanvases)
             {
-                canvas.SetTool(DrawingTool.Pen);
+                canvas.SetTool(DrawingCanvas.DrawingTool.Pen);
             }
         }
 
@@ -95,7 +95,7 @@ namespace AnkiPlus_MAUI
         {
             foreach (var canvas in _drawingCanvases)
             {
-                canvas.SetTool(DrawingTool.Marker);
+                canvas.SetTool(DrawingCanvas.DrawingTool.Marker);
             }
         }
 
@@ -103,7 +103,7 @@ namespace AnkiPlus_MAUI
         {
             foreach (var canvas in _drawingCanvases)
             {
-                canvas.SetTool(DrawingTool.Eraser);
+                canvas.SetTool(DrawingCanvas.DrawingTool.Eraser);
             }
         }
 
@@ -165,7 +165,7 @@ namespace AnkiPlus_MAUI
                 foreach (var canvas in _drawingCanvases)
                 {
                     canvas.SetPenColor(color);
-                    canvas.SetTool(DrawingTool.Pen);
+                    canvas.SetTool(DrawingCanvas.DrawingTool.Pen);
                 }
             }
         }
@@ -312,12 +312,49 @@ namespace AnkiPlus_MAUI
             }
         }
 
-        protected override async void OnDisappearing()
+        private void OnTextClicked(object sender, EventArgs e)
         {
-            base.OnDisappearing();
             foreach (var canvas in _drawingCanvases)
             {
-                await canvas.OnBackButtonPressed();
+                canvas.SetTool(DrawingCanvas.DrawingTool.Text);
+            }
+        }
+
+        protected override void OnHandlerChanged()
+        {
+            base.OnHandlerChanged();
+            if (Handler != null)
+            {
+                // キーボードイベントのハンドラを追加
+                if (Handler.PlatformView is Microsoft.Maui.Controls.Page page)
+                {
+                    page.Focused += OnPageFocused;
+                }
+            }
+        }
+
+        private void OnPageFocused(object sender, FocusEventArgs e)
+        {
+            if (e.IsFocused)
+            {
+                // ページがフォーカスされた時の処理
+                // 必要に応じて実装
+            }
+        }
+
+        protected override void OnDisappearing()
+        {
+            base.OnDisappearing();
+            if (Handler != null)
+            {
+                // イベントハンドラを削除
+                if (Handler.PlatformView is Microsoft.Maui.Controls.Page page)
+                {
+                    page.Focused -= OnPageFocused;
+                }
+            }
+            foreach (var canvas in _drawingCanvases)
+            {
                 canvas.Dispose();
             }
         }
