@@ -740,8 +740,52 @@ namespace AnkiPlus_MAUI.Views
             return false;
         }
 
+        private void LogDebugInfo(string context, SKPoint point = default, float? scale = null)
+        {
+            Debug.WriteLine($"=== Debug Info: {context} ===");
+            Debug.WriteLine($"Screen Info:");
+            Debug.WriteLine($"  - Device Display Size: {DeviceDisplay.Current.MainDisplayInfo.Width}x{DeviceDisplay.Current.MainDisplayInfo.Height}");
+            Debug.WriteLine($"  - Device Display Density: {DeviceDisplay.Current.MainDisplayInfo.Density}");
+            
+            Debug.WriteLine($"Canvas Info:");
+            Debug.WriteLine($"  - Canvas Size: {Width}x{Height}");
+            Debug.WriteLine($"  - Base Canvas Width: {BASE_CANVAS_WIDTH}");
+            Debug.WriteLine($"  - Current Scale: {_currentScale}");
+            Debug.WriteLine($"  - Transform Matrix: {_transformMatrix}");
+            
+            if (_backgroundImage != null)
+            {
+                Debug.WriteLine($"PDF Page Info:");
+                Debug.WriteLine($"  - Page Size: {_pageSize.Width}x{_pageSize.Height}");
+                Debug.WriteLine($"  - Background Image Size: {_backgroundImage.Width}x{_backgroundImage.Height}");
+            }
+
+            if (point != default)
+            {
+                Debug.WriteLine($"Position Info:");
+                Debug.WriteLine($"  - Raw Touch Point: {point}");
+                var transformedPoint = _transformMatrix.MapPoint(point);
+                Debug.WriteLine($"  - Transformed Point: {transformedPoint}");
+            }
+
+            if (_selectedPageCanvas != null)
+            {
+                Debug.WriteLine($"Selected Page Info:");
+                Debug.WriteLine($"  - Page Index: {_selectedPageCanvas.PageIndex}");
+                Debug.WriteLine($"  - Page Position Y: {_selectedPageCanvas.Y}");
+                Debug.WriteLine($"  - Page Size: {_selectedPageCanvas.Width}x{_selectedPageCanvas.Height}");
+                Debug.WriteLine($"  - Is High Quality: {_selectedPageCanvas.IsHighQuality}");
+            }
+
+            Debug.WriteLine($"Scroll Info:");
+            Debug.WriteLine($"  - Total Height: {_totalHeight}");
+            Debug.WriteLine($"  - Current Visible Page: {_currentVisiblePage}");
+            Debug.WriteLine("================================");
+        }
+
         protected override void OnTouch(SKTouchEventArgs e)
         {
+            LogDebugInfo("OnTouch Event", e.Location);
             bool isCtrlPressed = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
             bool isRightClick = e.MouseButton == SKMouseButton.Right;
 
@@ -1270,6 +1314,7 @@ namespace AnkiPlus_MAUI.Views
 
         private void UpdatePageCanvases()
         {
+            LogDebugInfo("UpdatePageCanvases Event");
             Debug.WriteLine($"Updating Page Canvases - Current Scale: {_currentScale}");
 
             var oldPageCanvases = _pageCanvases.ToList();
@@ -1323,6 +1368,7 @@ namespace AnkiPlus_MAUI.Views
 
         protected override void OnPaintSurface(SKPaintSurfaceEventArgs e)
         {
+            LogDebugInfo("OnPaintSurface Event");
             base.OnPaintSurface(e);
             var canvas = e.Surface.Canvas;
             
@@ -1828,73 +1874,21 @@ namespace AnkiPlus_MAUI.Views
             switch (_currentTool)
             {
                 case DrawingTool.Pen:
+                    _penPaint.Color = color;
+                    _penPaint.StrokeWidth = strokeWidth;
                     _currentPaint = _penPaint.Clone();
-                    _currentPaint.Color = color;
-                    _currentPaint.StrokeWidth = strokeWidth;
-                    if (transparency.HasValue)
-                    {
-                        _currentPaint.Color = new SKColor(color.Red, color.Green, color.Blue, (byte)(255 * transparency.Value));
-                    }
                     break;
-
                 case DrawingTool.Marker:
+                    var alpha = transparency.HasValue ? (byte)(transparency.Value * 255) : (byte)128;
+                    _markerPaint.Color = color.WithAlpha(alpha);
+                    _markerPaint.StrokeWidth = strokeWidth;
                     _currentPaint = _markerPaint.Clone();
-                    _currentPaint.Color = color;
-                    // マーカーの太さを_markerWidthsから取得
-                    if (_currentTool == DrawingTool.Marker)
-                    {
-                        var currentWidth = GetMarkerWidthText();
-                        if (_markerWidths.TryGetValue(currentWidth, out float markerWidth))
-                        {
-                            _currentPaint.StrokeWidth = markerWidth;
-                        }
-                    }
-                    else
-                    {
-                        _currentPaint.StrokeWidth = strokeWidth;
-                    }
-                    if (transparency.HasValue)
-                    {
-                        _currentPaint.Color = new SKColor(color.Red, color.Green, color.Blue, (byte)(255 * transparency.Value));
-                    }
                     break;
-
                 case DrawingTool.Eraser:
+                    _eraserPaint.StrokeWidth = strokeWidth;
                     _currentPaint = _eraserPaint.Clone();
-                    _currentPaint.StrokeWidth = strokeWidth;
-                    break;
-
-                default:
-                    _currentPaint = _penPaint.Clone();
                     break;
             }
-        }
-
-        private string GetMarkerWidthText()
-        {
-            // 現在のマーカーの太さに最も近い値を探す
-            var currentWidth = _currentPaint.StrokeWidth;
-            var closestWidth = _markerWidths.OrderBy(x => Math.Abs(x.Value - currentWidth)).First();
-            return closestWidth.Key;
-        }
-
-        public void SetMarkerWidth(string width)
-        {
-            if (_markerWidths.TryGetValue(width, out float strokeWidth))
-            {
-                _markerPaint.StrokeWidth = strokeWidth;
-                UpdateCurrentPaint(_currentPaint.Color, strokeWidth);
-                InvalidateSurface();
-            }
-        }
-
-        public void CycleMarkerWidth()
-        {
-            var currentWidth = GetMarkerWidthText();
-            var widths = _markerWidths.Keys.ToList();
-            var currentIndex = widths.IndexOf(currentWidth);
-            var nextIndex = (currentIndex + 1) % widths.Count;
-            SetMarkerWidth(widths[nextIndex]);
         }
 
         public void SetPenColor(SKColor color)
@@ -1996,6 +1990,7 @@ namespace AnkiPlus_MAUI.Views
 
         private async Task LoadPdfPageAsync(int pageIndex, float dpi)
         {
+            LogDebugInfo($"LoadPdfPage Event - Page {pageIndex}, DPI {dpi}");
             if (_pdfDocument == null || pageIndex < 0 || pageIndex >= _pdfDocument.PageCount)
                 return;
 
@@ -2141,6 +2136,7 @@ namespace AnkiPlus_MAUI.Views
 
         private async Task UpdateVisiblePagesAsync(double scrollY)
         {
+            LogDebugInfo($"UpdateVisiblePages Event - ScrollY: {scrollY}");
             if (_pdfDocument == null || _pageCanvases.Count == 0)
                 return;
 
@@ -2768,6 +2764,7 @@ namespace AnkiPlus_MAUI.Views
 
         protected override void OnSizeAllocated(double width, double height)
         {
+            LogDebugInfo("OnSizeAllocated Event");
             base.OnSizeAllocated(width, height);
             Debug.WriteLine($"OnSizeAllocated called with width: {width}, height: {height}");
             

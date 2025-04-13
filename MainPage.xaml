@@ -3,7 +3,8 @@
              xmlns:behaviors="clr-namespace:AnkiPlus_MAUI.Behaviors"
              xmlns:converters="clr-namespace:AnkiPlus_MAUI.Converters"
              x:Class="AnkiPlus_MAUI.MainPage"
-             Title="ようこそ">
+             
+             Title="ノート">
     
     <ContentPage.Resources>
         <converters:InverseBoolConverter x:Key="InverseBoolConverter"/>
