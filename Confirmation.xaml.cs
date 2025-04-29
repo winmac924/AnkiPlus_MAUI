@@ -7,44 +7,59 @@ namespace AnkiPlus_MAUI
     public partial class Confirmation : ContentPage
     {
         private Note _selectedNote;
-        private string tempExtractPath; // ˆê“WŠJƒtƒHƒ‹ƒ_
-        private string ankplsFilePath;  // .ankplsƒtƒ@ƒCƒ‹‚ÌƒpƒX
+        private string tempExtractPath; // ä¸€æ™‚å±•é–‹ãƒ‘ã‚¹
+        private string ankplsFilePath;  // .ankplsãƒ•ã‚¡ã‚¤ãƒ«ã®ãƒ‘ã‚¹
 
         public Confirmation(Note note)
         {
             InitializeComponent();
             _selectedNote = note;
 
-            // ƒpƒXİ’è
+            // ãƒ‘ã‚¹è¨­å®š
             string documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
             ankplsFilePath = Path.Combine(documentsPath, "AnkiPlus", $"{_selectedNote.Name}.ankpls");
-            tempExtractPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Temp", "AnkiPlus", $"{_selectedNote.Name}_temp");
+
+            // ãƒ•ã‚©ãƒ«ãƒ€æ§‹é€ ã‚’ç¶­æŒã—ãŸä¸€æ™‚ãƒ‡ã‚£ãƒ¬ã‚¯ãƒˆãƒªã®ãƒ‘ã‚¹ã‚’ç”Ÿæˆ
+            string relativePath = Path.GetRelativePath(Path.Combine(documentsPath, "AnkiPlus"), Path.GetDirectoryName(_selectedNote.FullPath));
+            tempExtractPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Temp",
+                "AnkiPlus",
+                relativePath,
+                $"{_selectedNote.Name}_temp"
+            );
+
+            // ä¸€æ™‚ãƒ‡ã‚£ãƒ¬ã‚¯ãƒˆãƒªãŒå­˜åœ¨ã—ãªã„å ´åˆã¯ä½œæˆ
+            if (!Directory.Exists(tempExtractPath))
+            {
+                Directory.CreateDirectory(tempExtractPath);
+            }
 
             LoadNote();
         }
-        // ƒm[ƒg‚ğ“Ç‚İ‚İA–â‘è”‚ğ•\¦
+        // ãƒ‡ãƒ¼ã‚¿ãƒ­ãƒ¼ãƒ‰
         private void LoadNote()
         {
             if (File.Exists(ankplsFilePath))
             {
-                // –â‘è”‚ğæ“¾
+                // ãƒ‡ãƒ¼ã‚¿å–å¾—
                 int totalQuestions = GetTotalQuestions();
                 NoteTitleLabel.Text = _selectedNote.Name;
-                TotalQuestionsLabel.Text = $"–â‘è”: {totalQuestions}";
+                TotalQuestionsLabel.Text = $"ãƒãƒ¼ãƒˆæ•°: {totalQuestions}";
             }
             else
             {
-                DisplayAlert("ƒGƒ‰[", "ƒm[ƒgƒtƒ@ƒCƒ‹‚ªŒ©‚Â‚©‚è‚Ü‚¹‚ñ‚Å‚µ‚½", "OK");
+                DisplayAlert("ã‚¨ãƒ©ãƒ¼", "ãƒ‡ãƒ¼ã‚¿ãŒè¦‹ã¤ã‹ã‚Šã¾ã›ã‚“ã§ã—ãŸ", "OK");
             }
         }
-        // –â‘è”‚ğæ“¾i‰¼j
+        // ãƒãƒ¼ãƒˆæ•°å–å¾—
         private int GetTotalQuestions()
         {
             string cardsFilePath = Path.Combine(tempExtractPath, "cards.txt");
             if (File.Exists(cardsFilePath))
             {
                 Debug.WriteLine(cardsFilePath);
-                // `cards.txt` ‚Ì1s–Ú‚É–â‘è”‚ª‹L˜^‚³‚ê‚Ä‚¢‚é
+                // `cards.txt` 1è¡Œç›®ã«ãƒãƒ¼ãƒˆæ•°ãŒè¨˜è¼‰ã•ã‚Œã¦ã„ã‚‹
                 var lines = File.ReadAllLines(cardsFilePath);
 
                 if (lines.Length > 0 && int.TryParse(lines[1], out int questionCount))
@@ -55,28 +70,29 @@ namespace AnkiPlus_MAUI
             return 0;
         }
 
-        // ŠwK‚ğŠJn
+        // å­¦ç¿’é–‹å§‹
         private void OnStartLearningClicked(object sender, EventArgs e)
         {
-            // Qa.xaml ‚É‘JˆÚi‰¼j
-            Navigation.PushAsync(new Qa(_selectedNote.Name));
+            // Qa.xaml ã«é·ç§»ï¼ˆtempãƒ•ã‚¡ã‚¤ãƒ«ã®ãƒ‘ã‚¹ã‚’æ¸¡ã™ï¼‰
+            Navigation.PushAsync(new Qa(_selectedNote.Name, tempExtractPath));
         }
-        // Add‚Ö
+        // Add
         private async void AddCardClicked(object sender, EventArgs e)
         {
             if (Navigation != null)
             {
-                await Navigation.PushAsync(new Add(_selectedNote));
+                // Add.xaml ã«é·ç§»ï¼ˆtempãƒ•ã‚¡ã‚¤ãƒ«ã®ãƒ‘ã‚¹ã‚’æ¸¡ã™ï¼‰
+                await Navigation.PushAsync(new Add(_selectedNote.Name, tempExtractPath));
             }
             else
             {
                 await DisplayAlert("Error", "Navigation is not available.", "OK");
             }
         }
-        // NotePage‚Ö
+        // NotePage
         private async void ToNoteClicked(object sender, EventArgs e)
         {
-            await Navigation.PushAsync(new NotePage(_selectedNote.Name));
+            await Navigation.PushAsync(new NotePage(_selectedNote.Name, tempExtractPath));
         }
     }
 }

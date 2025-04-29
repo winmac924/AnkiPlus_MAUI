@@ -16,20 +16,20 @@ namespace AnkiPlus_MAUI
         private int currentIndex = 0;
         private int correctCount = 0;
         private int incorrectCount = 0;
-        // ƒNƒ‰ƒX‚Ìæ“ª‚Å•Ï”‚ğéŒ¾
+        // ã‚¯ãƒ©ã‚¹ã®å…ˆé ­ã§å¤‰æ•°ã‚’å®£è¨€
         private string selectedImagePath = "";
         private List<SKRect> selectionRects = new List<SKRect>();
-        // Še–â‘è‚²‚Æ‚Ì³‰ğE•s³‰ğ‰ñ”‚ğŠÇ—
+        // å„å•é¡Œã”ã¨ã®æ­£è§£ãƒ»ä¸æ­£è§£å›æ•°ã‚’ç®¡ç†
         private Dictionary<int, (int correct, int incorrect)> results = new Dictionary<int, (int, int)>();
-        private bool showAnswer = false;  // ‰ğ“š•\¦ƒtƒ‰ƒO
+        private bool showAnswer = false;  // è§£ç­”è¡¨ç¤ºãƒ•ãƒ©ã‚°
         private string frontText = "";
 
-        public Qa(string cardsPath)
+        public Qa(string cardsPath, string tempPath)
         {
             InitializeComponent();
-            // ˆêƒtƒHƒ‹ƒ_
-            cardsFilePath = Path.Combine(Path.GetTempPath(), "AnkiPlus", $"{cardsPath}_temp", "cards.txt");
-            tempExtractPath = Path.Combine(Path.GetTempPath(), "AnkiPlus", $"{cardsPath}_temp");
+            // ä¸€æ™‚ãƒ•ã‚©ãƒ«ãƒ€
+            tempExtractPath = tempPath;
+            cardsFilePath = Path.Combine(tempExtractPath, "cards.txt");
             LoadCards();
             DisplayCard();
         }
@@ -39,14 +39,14 @@ namespace AnkiPlus_MAUI
             CanvasView.InvalidateSurface();
             LoadResultsFromFile();
         }
-        // ƒJ[ƒh‚ğ“Ç‚İ‚Ş
+        // ã‚«ãƒ¼ãƒ‰ã‚’èª­ã¿è¾¼ã‚€
         private void LoadCards()
         {
             if (File.Exists(cardsFilePath))
             {
                 var lines = File.ReadAllLines(cardsFilePath);
                 var card = new List<string>();
-                var isFirstCardSkipped = false; // Å‰‚ÌƒJ[ƒh‚ğƒXƒLƒbƒv‚·‚é‚½‚ß‚Ìƒtƒ‰ƒO
+                var isFirstCardSkipped = false; // æœ€åˆã®ã‚«ãƒ¼ãƒ‰ã‚’ã‚¹ã‚­ãƒƒãƒ—ã™ã‚‹ãŸã‚ã®ãƒ•ãƒ©ã‚°
 
                 foreach (var line in lines)
                 {
@@ -56,11 +56,11 @@ namespace AnkiPlus_MAUI
                         {
                             if (isFirstCardSkipped)
                             {
-                                cards.Add(string.Join("\n", card)); // Å‰‚ÌƒJ[ƒhˆÈŠO‚ğ’Ç‰Á
+                                cards.Add(string.Join("\n", card)); // æœ€åˆã®ã‚«ãƒ¼ãƒ‰ä»¥å¤–ã‚’è¿½åŠ 
                             }
                             else
                             {
-                                isFirstCardSkipped = true; // Å‰‚ÌƒJ[ƒh‚ğƒXƒLƒbƒv
+                                isFirstCardSkipped = true; // æœ€åˆã®ã‚«ãƒ¼ãƒ‰ã‚’ã‚¹ã‚­ãƒƒãƒ—
                             }
                             card.Clear();
                         }
@@ -79,7 +79,7 @@ namespace AnkiPlus_MAUI
                 Debug.WriteLine($"Loaded {cards.Count} cards");
             }
         }
-        // Œ‹‰Êƒtƒ@ƒCƒ‹‚ğ“Ç‚İ‚ŞiƒtƒH[ƒ}ƒbƒg‘Î‰j
+        // çµæœãƒ•ã‚¡ã‚¤ãƒ«ã‚’èª­ã¿è¾¼ã‚€ï¼ˆãƒ•ã‚©ãƒ¼ãƒãƒƒãƒˆå¯¾å¿œï¼‰
         private void LoadResultsFromFile()
         {
             try
@@ -96,12 +96,12 @@ namespace AnkiPlus_MAUI
 
                         if (parts.Length >= 3)
                         {
-                            // ƒJ[ƒh”Ô†‚ğæ“¾
+                            // ã‚«ãƒ¼ãƒ‰ç•ªå·ã‚’å–å¾—
                             if (int.TryParse(parts[0].Trim(), out int questionNumber))
                             {
-                                // "³‰ğ: 1‰ñ, •s³‰ğ: 0‰ñ" Œ`®‚ğ‰ğÍ
-                                var correctMatch = Regex.Match(line, @"³‰ğ:\s*(\d+)‰ñ").Groups[1].Value;
-                                var incorrectMatch = Regex.Match(line, @"•s³‰ğ:\s*(\d+)‰ñ").Groups[1].Value;
+                                // "æ­£è§£: 1å›, ä¸æ­£è§£: 0å›" å½¢å¼ã‚’è§£æ
+                                var correctMatch = Regex.Match(line, @"æ­£è§£:\s*(\d+)å›").Groups[1].Value;
+                                var incorrectMatch = Regex.Match(line, @"ä¸æ­£è§£:\s*(\d+)å›").Groups[1].Value;
 
                                 int correct = int.TryParse(correctMatch, out int c) ? c : 0;
                                 int incorrect = int.TryParse(incorrectMatch, out int ic) ? ic : 0;
@@ -114,21 +114,21 @@ namespace AnkiPlus_MAUI
                     }
                 }
 
-                Debug.WriteLine($"Œ‹‰Ê‚ğ“Ç‚İ‚İ‚Ü‚µ‚½: {resultsFilePath}");
+                Debug.WriteLine($"çµæœã‚’èª­ã¿è¾¼ã¿ã¾ã—ãŸ: {resultsFilePath}");
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Œ‹‰Ê“Ç‚İ‚İ’†‚ÉƒGƒ‰[: {ex.Message}");
+                Debug.WriteLine($"çµæœèª­ã¿è¾¼ã¿ä¸­ã«ã‚¨ãƒ©ãƒ¼: {ex.Message}");
             }
         }
-        // –â‘è‚ğ•\¦
+        // å•é¡Œã‚’è¡¨ç¤º
         private async void DisplayCard()
         {
             if (currentIndex >= cards.Count)
             {
-                // Œ‹‰Ê‚ğƒtƒ@ƒCƒ‹‚É•Û‘¶
+                // çµæœã‚’ãƒ•ã‚¡ã‚¤ãƒ«ã«ä¿å­˜
                 SaveResultsToFile();
-                await DisplayAlert("I—¹", "‚·‚×‚Ä‚Ì–â‘è‚ªI—¹‚µ‚Ü‚µ‚½", "OK");
+                await DisplayAlert("çµ‚äº†", "ã™ã¹ã¦ã®å•é¡ŒãŒçµ‚äº†ã—ã¾ã—ãŸ", "OK");
                 await Navigation.PopAsync();
                 return;
             }
@@ -136,33 +136,33 @@ namespace AnkiPlus_MAUI
             var card = cards[currentIndex];
             var lines = card.Split('\n').Select(line => line.Trim()).ToList();
 
-            // ƒŒƒCƒAƒEƒg‚Ì‰Šú‰»
+            // ãƒ¬ã‚¤ã‚¢ã‚¦ãƒˆã®åˆæœŸåŒ–
             BasicCardLayout.IsVisible = false;
             ChoiceCardLayout.IsVisible = false;
             ImageFillCardLayout.IsVisible = false;
             AnswerLine.IsVisible = false;
 
-            if (lines[0].Contains("Šî–{"))
+            if (lines[0].Contains("åŸºæœ¬"))
             {
                 DisplayBasicCard(lines);
             }
-            else if (lines[0].Contains("‘I‘ğˆ"))
+            else if (lines[0].Contains("é¸æŠè‚¢"))
             {
                 DisplayChoiceCard(lines);
             }
-            else if (lines[0].Contains("‰æ‘œŒŠ–„‚ß"))
+            else if (lines[0].Contains("ç”»åƒç©´åŸ‹ã‚"))
             {
                 DisplayImageFillCard(lines);
             }
         }
-        // Šî–{EŒŠ–„‚ßƒJ[ƒh•\¦
+        // åŸºæœ¬ãƒ»ç©´åŸ‹ã‚ã‚«ãƒ¼ãƒ‰è¡¨ç¤º
         private void DisplayBasicCard(List<string> lines)
         {
             BasicCardLayout.IsVisible = true;
 
-            frontText = lines.FirstOrDefault(l => l.StartsWith("•\–Ê:"))?.Substring(3) ?? "";
-            string backText = lines.FirstOrDefault(l => l.StartsWith("— –Ê:"))?.Substring(3) ?? "";
-            // ‰‰ñ•\¦‚Í‰ğ“š”ñ•\¦
+            frontText = lines.FirstOrDefault(l => l.StartsWith("è¡¨é¢:"))?.Substring(3) ?? "";
+            string backText = lines.FirstOrDefault(l => l.StartsWith("è£é¢:"))?.Substring(3) ?? "";
+            // åˆå›è¡¨ç¤ºæ™‚ã¯è§£ç­”éè¡¨ç¤º
             FrontPreviewWebView.Source = new HtmlWebViewSource
             {
                 Html = ConvertMarkdownToHtml(frontText, showAnswer: false)
@@ -175,16 +175,16 @@ namespace AnkiPlus_MAUI
 
             BackPreviewWebView.IsVisible = false;
         }
-        // ‘I‘ğˆƒJ[ƒh•\¦
-        private List<CheckBox> checkBoxes = new List<CheckBox>();  // ƒ`ƒFƒbƒNƒ{ƒbƒNƒX‚ğ•Û
-        private List<bool> currentCorrectFlags = new List<bool>();  // Œ»İ‚ÌƒJ[ƒh‚Ì³Œëî•ñ
+        // é¸æŠè‚¢ã‚«ãƒ¼ãƒ‰è¡¨ç¤º
+        private List<CheckBox> checkBoxes = new List<CheckBox>();  // ãƒã‚§ãƒƒã‚¯ãƒœãƒƒã‚¯ã‚¹ã‚’ä¿æŒ
+        private List<bool> currentCorrectFlags = new List<bool>();  // ç¾åœ¨ã®ã‚«ãƒ¼ãƒ‰ã®æ­£èª¤æƒ…å ±
 
         private void DisplayChoiceCard(List<string> lines)
         {
             ChoiceCardLayout.IsVisible = true;
 
             var (question, explanation, choices, isCorrectFlags) = ParseChoiceCard(lines);
-            currentCorrectFlags = isCorrectFlags;  // Œ»İ‚Ì³Œëî•ñ‚ğ•Û
+            currentCorrectFlags = isCorrectFlags;  // ç¾åœ¨ã®æ­£èª¤æƒ…å ±ã‚’ä¿æŒ
 
             ChoiceQuestionWebView.Source = new HtmlWebViewSource
             {
@@ -203,7 +203,7 @@ namespace AnkiPlus_MAUI
                     Spacing = 10
                 };
 
-                // ƒ`ƒFƒbƒNƒ{ƒbƒNƒX
+                // ãƒã‚§ãƒƒã‚¯ãƒœãƒƒã‚¯ã‚¹
                 var checkBox = new CheckBox
                 {
                     IsChecked = false
@@ -211,14 +211,14 @@ namespace AnkiPlus_MAUI
 
                 checkBoxes.Add(checkBox);
 
-                // ‘I‘ğˆ‚Ìƒ‰ƒxƒ‹
+                // é¸æŠè‚¢ã®ãƒ©ãƒ™ãƒ«
                 var choiceLabel = new Label
                 {
                     Text = choiceText,
                     VerticalOptions = LayoutOptions.Center
                 };
 
-                // ³Œëƒ}[ƒN‚ğ•\¦‚·‚é‚½‚ß‚Ì Label
+                // æ­£èª¤ãƒãƒ¼ã‚¯ã‚’è¡¨ç¤ºã™ã‚‹ãŸã‚ã® Label
                 var resultLabel = new Label
                 {
                     Text = "",
@@ -226,7 +226,7 @@ namespace AnkiPlus_MAUI
                     IsVisible = false
                 };
 
-                // ƒ`ƒFƒbƒNƒ{ƒbƒNƒX‚Æƒ‰ƒxƒ‹‚ğ’Ç‰Á
+                // ãƒã‚§ãƒƒã‚¯ãƒœãƒƒã‚¯ã‚¹ã¨ãƒ©ãƒ™ãƒ«ã‚’è¿½åŠ 
                 choiceLayout.Children.Add(checkBox);
                 choiceLayout.Children.Add(choiceLabel);
                 choiceLayout.Children.Add(resultLabel);
@@ -234,7 +234,7 @@ namespace AnkiPlus_MAUI
                 ChoiceContainer.Children.Add(choiceLayout);
             }
 
-            // ‰ğà‚ğ•\¦
+            // è§£èª¬ã‚’è¡¨ç¤º
             ChoiceExplanationWebView.Source = new HtmlWebViewSource
             {
                 Html = ConvertMarkdownToHtml(explanation)
@@ -247,34 +247,34 @@ namespace AnkiPlus_MAUI
             ImageFillCardLayout.IsVisible = true;
             selectionRects.Clear();
 
-            string imageFileName = lines.FirstOrDefault(l => l.StartsWith("‰æ‘œ:"))?.Split(": ")[1];
+            string imageFileName = lines.FirstOrDefault(l => l.StartsWith("ç”»åƒ:"))?.Split(": ")[1];
 
             if (!string.IsNullOrWhiteSpace(imageFileName))
             {
-                // ƒtƒ‹ƒpƒX‚ğì¬
+                // ãƒ•ãƒ«ãƒ‘ã‚¹ã‚’ä½œæˆ
                 string imageFolder = Path.Combine(tempExtractPath, "img");
                 selectedImagePath = Path.Combine(imageFolder, imageFileName);
 
                 if (File.Exists(selectedImagePath))
                 {
-                    Debug.WriteLine($"‰æ‘œ“Ç‚İ‚İ¬Œ÷: {selectedImagePath}");
-                    CanvasView.InvalidateSurface();  // Ä•`‰æ
+                    Debug.WriteLine($"ç”»åƒèª­ã¿è¾¼ã¿æˆåŠŸ: {selectedImagePath}");
+                    CanvasView.InvalidateSurface();  // å†æç”»
                 }
                 else
                 {
-                    Debug.WriteLine($"‰æ‘œ‚ª‘¶İ‚µ‚Ü‚¹‚ñ: {selectedImagePath}");
-                    await DisplayAlert("ƒGƒ‰[", "‰æ‘œ‚ª‘¶İ‚µ‚Ü‚¹‚ñB", "OK");
+                    Debug.WriteLine($"ç”»åƒãŒå­˜åœ¨ã—ã¾ã›ã‚“: {selectedImagePath}");
+                    await DisplayAlert("ã‚¨ãƒ©ãƒ¼", "ç”»åƒãŒå­˜åœ¨ã—ã¾ã›ã‚“ã€‚", "OK");
                     return;
                 }
             }
             else
             {
-                await DisplayAlert("ƒGƒ‰[", "‰æ‘œƒpƒX‚ª–³Œø‚Å‚·B", "OK");
+                await DisplayAlert("ã‚¨ãƒ©ãƒ¼", "ç”»åƒãƒ‘ã‚¹ãŒç„¡åŠ¹ã§ã™ã€‚", "OK");
                 return;
             }
 
-            // ”ÍˆÍ‚Ì’Ç‰Á
-            foreach (var line in lines.Where(l => l.StartsWith("”ÍˆÍ:")))
+            // ç¯„å›²ã®è¿½åŠ 
+            foreach (var line in lines.Where(l => l.StartsWith("ç¯„å›²:")))
             {
                 var values = line.Split(": ")[1].Split(',').Select(float.Parse).ToArray();
                 if (values.Length == 4)
@@ -295,31 +295,31 @@ namespace AnkiPlus_MAUI
 
             if (string.IsNullOrWhiteSpace(selectedImagePath) || !File.Exists(selectedImagePath))
             {
-                Debug.WriteLine("‰æ‘œ‚ª‘I‘ğ‚³‚ê‚Ä‚¢‚È‚¢‚©A‘¶İ‚µ‚Ü‚¹‚ñB");
+                Debug.WriteLine("ç”»åƒãŒé¸æŠã•ã‚Œã¦ã„ãªã„ã‹ã€å­˜åœ¨ã—ã¾ã›ã‚“ã€‚");
                 return;
             }
 
             try
             {
-                // ƒtƒ@ƒCƒ‹ƒpƒX‚©‚ç’¼Ú‰æ‘œ‚ğ“Ç‚İ‚Ş
+                // ãƒ•ã‚¡ã‚¤ãƒ«ãƒ‘ã‚¹ã‹ã‚‰ç›´æ¥ç”»åƒã‚’èª­ã¿è¾¼ã‚€
                 using (var stream = File.OpenRead(selectedImagePath))
                 {
                     var bitmap = SKBitmap.Decode(stream);
-                    Debug.WriteLine($"‰æ‘œƒTƒCƒY: {bitmap.Width} x {bitmap.Height}");
+                    Debug.WriteLine($"ç”»åƒã‚µã‚¤ã‚º: {bitmap.Width} x {bitmap.Height}");
                     if (bitmap == null)
                     {
-                        Debug.WriteLine("‰æ‘œ‚ÌƒfƒR[ƒh‚É¸”s‚µ‚Ü‚µ‚½B");
+                        Debug.WriteLine("ç”»åƒã®ãƒ‡ã‚³ãƒ¼ãƒ‰ã«å¤±æ•—ã—ã¾ã—ãŸã€‚");
                         return;
                     }
 
-                    // ‰æ‘œ‚ğ•`‰æiƒTƒCƒY’²®‚È‚µj
+                    // ç”»åƒã‚’æç”»ï¼ˆã‚µã‚¤ã‚ºèª¿æ•´ãªã—ï¼‰
                     var imageRect = new SKRect(0, 0, info.Width, info.Height);
                     canvas.DrawBitmap(bitmap, imageRect);
 
-                    // ”ÍˆÍ‚ğ‚»‚Ì‚Ü‚Ü•\¦
+                    // ç¯„å›²ã‚’ãã®ã¾ã¾è¡¨ç¤º
                     foreach (var rect in selectionRects)
                     {
-                        // “h‚è‚Â‚Ô‚µ—p‚ÌƒyƒCƒ“ƒg
+                        // å¡—ã‚Šã¤ã¶ã—ç”¨ã®ãƒšã‚¤ãƒ³ãƒˆ
                         using (var fillPaint = new SKPaint
                         {
                             Color = SKColors.Red,
@@ -329,7 +329,7 @@ namespace AnkiPlus_MAUI
                             canvas.DrawRect(rect, fillPaint);
                         }
 
-                        // ˜gü•\¦
+                        // æ ç·šè¡¨ç¤º
                         using (var borderPaint = new SKPaint
                         {
                             Color = SKColors.Black,
@@ -340,17 +340,17 @@ namespace AnkiPlus_MAUI
                             canvas.DrawRect(rect, borderPaint);
                         }
 
-                        Debug.WriteLine($"•\¦”ÍˆÍ: {rect.Left}, {rect.Top}, {rect.Right}, {rect.Bottom}");
+                        Debug.WriteLine($"è¡¨ç¤ºç¯„å›²: {rect.Left}, {rect.Top}, {rect.Right}, {rect.Bottom}");
                     }
                 }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"•`‰æ’†‚ÉƒGƒ‰[‚ª”­¶‚µ‚Ü‚µ‚½: {ex.Message}");
+                Debug.WriteLine($"æç”»ä¸­ã«ã‚¨ãƒ©ãƒ¼ãŒç™ºç”Ÿã—ã¾ã—ãŸ: {ex.Message}");
             }
         }
 
-        // ‘I‘ğˆƒJ[ƒh‚ğ‰ğÍ
+        // é¸æŠè‚¢ã‚«ãƒ¼ãƒ‰ã‚’è§£æ
         private (string Question, string Explanation, List<string> Choices, List<bool> IsCorrect) ParseChoiceCard(List<string> lines)
         {
             var question = new StringBuilder();
@@ -363,28 +363,28 @@ namespace AnkiPlus_MAUI
 
             foreach (var line in lines)
             {
-                if (line.StartsWith("–â‘è:"))
+                if (line.StartsWith("å•é¡Œ:"))
                 {
                     isQuestion = true;
                     isExplanation = false;
                     question.AppendLine(line.Substring(3));
                 }
-                else if (line.StartsWith("‰ğà:"))
+                else if (line.StartsWith("è§£èª¬:"))
                 {
                     isExplanation = true;
                     isQuestion = false;
                     explanation.AppendLine(line.Substring(3));
                 }
-                else if (line.StartsWith("‘I‘ğˆ:"))
+                else if (line.StartsWith("é¸æŠè‚¢:"))
                 {
                     var choiceText = line.Substring(4);
 
-                    // ³Œëƒtƒ‰ƒO‚ğ”»’è
-                    bool isCorrect = choiceText.Contains("(³‰ğ)");
+                    // æ­£èª¤ãƒ•ãƒ©ã‚°ã‚’åˆ¤å®š
+                    bool isCorrect = choiceText.Contains("(æ­£è§£)");
                     isCorrectFlags.Add(isCorrect);
 
-                    // •\¦—p‚Ì‘I‘ğˆƒeƒLƒXƒg‚Í `(³‰ğ)` ‚â `(•s³‰ğ)` ‚ğœ‹
-                    var cleanChoice = Regex.Replace(choiceText, @"\s*\(³‰ğ\)|\s*\(•s³‰ğ\)", "").Trim();
+                    // è¡¨ç¤ºç”¨ã®é¸æŠè‚¢ãƒ†ã‚­ã‚¹ãƒˆã¯ `(æ­£è§£)` ã‚„ `(ä¸æ­£è§£)` ã‚’é™¤å»
+                    var cleanChoice = Regex.Replace(choiceText, @"\s*\(æ­£è§£\)|\s*\(ä¸æ­£è§£\)", "").Trim();
                     choices.Add(cleanChoice);
                 }
                 else
@@ -410,13 +410,13 @@ namespace AnkiPlus_MAUI
             Incorrect.IsVisible = true;
             AnswerLine.IsVisible = true;
             ShowAnswerButton.IsVisible = false;
-            // ‰ğ“š•\¦ˆ—
+            // è§£ç­”è¡¨ç¤ºå‡¦ç†
             if (BasicCardLayout.IsVisible)
             {
-                showAnswer = true;  // ‰ğ“š•\¦ƒtƒ‰ƒO‚ğ—LŒø‚É
-                // ‰ğ“š‚ğ•\¦‚ÉŒŠ–„‚ß‚ğ `({•¶š})` ‚É•ÏŠ·
+                showAnswer = true;  // è§£ç­”è¡¨ç¤ºãƒ•ãƒ©ã‚°ã‚’æœ‰åŠ¹ã«
+                // è§£ç­”ã‚’è¡¨ç¤ºæ™‚ã«ç©´åŸ‹ã‚ã‚’ `({æ–‡å­—})` ã«å¤‰æ›
                 Debug.WriteLine(frontText);
-                var answerFrontHtml = ConvertMarkdownToHtml(frontText, showAnswer: true); 
+                var answerFrontHtml = ConvertMarkdownToHtml(frontText, showAnswer: true);
                 FrontPreviewWebView.Source = new HtmlWebViewSource
                 {
                     Html = answerFrontHtml
@@ -434,21 +434,21 @@ namespace AnkiPlus_MAUI
 
                     if (currentCorrectFlags[i])
                     {
-                        // ³‰ğ ¨ —ÎF
-                        resultLabel.Text = "³";
+                        // æ­£è§£ â†’ ç·‘è‰²
+                        resultLabel.Text = "æ­£";
                         resultLabel.TextColor = Colors.Green;
                         resultLabel.IsVisible = true;
                     }
                     else
                     {
-                        // •s³‰ğ ¨ ÔF
-                        resultLabel.Text = "Œë";
+                        // ä¸æ­£è§£ â†’ èµ¤è‰²
+                        resultLabel.Text = "èª¤";
                         resultLabel.TextColor = Colors.Red;
                         resultLabel.IsVisible = true;
                     }
                 }
 
-                // ‰ğà‚ğ•\¦
+                // è§£èª¬ã‚’è¡¨ç¤º
                 ChoiceExplanationWebView.IsVisible = true;
             }
             else if (ImageFillCardLayout.IsVisible)
@@ -458,7 +458,7 @@ namespace AnkiPlus_MAUI
             }
         }
 
-        // ³‰ğƒ{ƒ^ƒ“
+        // æ­£è§£ãƒœã‚¿ãƒ³
         private void OnCorrectClicked(object sender, EventArgs e)
         {
             if (!results.ContainsKey(currentIndex + 1))
@@ -466,11 +466,11 @@ namespace AnkiPlus_MAUI
                 results[currentIndex + 1] = (0, 0);
             }
 
-            // ƒJƒEƒ“ƒg‚Æ•Û‘¶
+            // ã‚«ã‚¦ãƒ³ãƒˆã¨ä¿å­˜
             var (correct, incorrect) = results[currentIndex + 1];
             results[currentIndex + 1] = (correct + 1, incorrect);
 
-            SaveResultsToFile();  // ‘¦À‚É•Û‘¶
+            SaveResultsToFile();  // å³åº§ã«ä¿å­˜
             currentIndex++;
             Correct.IsVisible = false;
             Incorrect.IsVisible = false;
@@ -479,7 +479,7 @@ namespace AnkiPlus_MAUI
             DisplayCard();
         }
 
-        // •s³‰ğƒ{ƒ^ƒ“
+        // ä¸æ­£è§£ãƒœã‚¿ãƒ³
         private void OnIncorrectClicked(object sender, EventArgs e)
         {
             if (!results.ContainsKey(currentIndex + 1))
@@ -487,11 +487,11 @@ namespace AnkiPlus_MAUI
                 results[currentIndex + 1] = (0, 0);
             }
 
-            // ƒJƒEƒ“ƒg‚Æ•Û‘¶
+            // ã‚«ã‚¦ãƒ³ãƒˆã¨ä¿å­˜
             var (correct, incorrect) = results[currentIndex + 1];
             results[currentIndex + 1] = (correct, incorrect + 1);
 
-            SaveResultsToFile();  // ‘¦À‚É•Û‘¶
+            SaveResultsToFile();  // å³åº§ã«ä¿å­˜
             currentIndex++;
             Correct.IsVisible = false;
             Incorrect.IsVisible = false;
@@ -520,14 +520,14 @@ namespace AnkiPlus_MAUI
             return $"data:{mimeType};base64,{base64String}";
         }
 
-        // Markdown ‚ğ HTML ‚É•ÏŠ·
+        // Markdown ã‚’ HTML ã«å¤‰æ›
         private string ConvertMarkdownToHtml(string text, bool showAnswer = false)
         {
             if (string.IsNullOrWhiteSpace(text)) return "";
 
-            // ‰æ‘œƒ^ƒO‚ğÅ‰‚Éˆ—
+            // ç”»åƒã‚¿ã‚°ã‚’æœ€åˆã«å‡¦ç†
             var matches = Regex.Matches(text, @"<<img(\d+)>>");
-            Debug.WriteLine($"‰æ‘œƒ^ƒO”: {matches.Count}");
+            Debug.WriteLine($"ç”»åƒã‚¿ã‚°æ•°: {matches.Count}");
             foreach (Match match in matches)
             {
                 int imgNum = int.Parse(match.Groups[1].Value);
@@ -542,35 +542,35 @@ namespace AnkiPlus_MAUI
                     }
                     else
                     {
-                        text = text.Replace(match.Value, $"[‰æ‘œ‚ªŒ©‚Â‚©‚è‚Ü‚¹‚ñ: img{imgNum}.png]");
+                        text = text.Replace(match.Value, $"[ç”»åƒãŒè¦‹ã¤ã‹ã‚Šã¾ã›ã‚“: img{imgNum}.png]");
                     }
                 }
                 else
                 {
-                    text = text.Replace(match.Value, $"[‰æ‘œ‚ªŒ©‚Â‚©‚è‚Ü‚¹‚ñ: img{imgNum}.png]");
+                    text = text.Replace(match.Value, $"[ç”»åƒãŒè¦‹ã¤ã‹ã‚Šã¾ã›ã‚“: img{imgNum}.png]");
                 }
             }
 
-            // ŒŠ–„‚ß•\¦ˆ—
+            // ç©´åŸ‹ã‚è¡¨ç¤ºå‡¦ç†
             if (showAnswer)
             {
                 Debug.WriteLine(frontText);
-                // ‰ğ“š•\¦‚Í `<<blank|•¶š>>` ¨ `({•¶š})`
+                // è§£ç­”è¡¨ç¤ºæ™‚ã¯ `<<blank|æ–‡å­—>>` â†’ `({æ–‡å­—})`
                 text = Regex.Replace(text, @"<<blank\|(.*?)>>", "($1)");
             }
             else
             {
-                // –â‘è•\¦‚Í `<<blank|•¶š>>` ¨ `( )`
+                // å•é¡Œè¡¨ç¤ºæ™‚ã¯ `<<blank|æ–‡å­—>>` â†’ `( )`
                 text = Regex.Replace(text, @"<<blank\|(.*?)>>", "( )");
             }
 
-            // HTML ƒGƒXƒP[ƒv
+            // HTML ã‚¨ã‚¹ã‚±ãƒ¼ãƒ—
             text = HttpUtility.HtmlEncode(text);
 
-            // ‘¾š•ÏŠ·
+            // å¤ªå­—å¤‰æ›
             text = Regex.Replace(text, @"\*\*(.*?)\*\*", "<b>$1</b>");
 
-            // F•ÏŠ·
+            // è‰²å¤‰æ›
             text = Regex.Replace(text, @"\{\{red\|(.*?)\}\}", "<span style='color:red;'>$1</span>");
             text = Regex.Replace(text, @"\{\{blue\|(.*?)\}\}", "<span style='color:blue;'>$1</span>");
             text = Regex.Replace(text, @"\{\{green\|(.*?)\}\}", "<span style='color:green;'>$1</span>");
@@ -578,18 +578,18 @@ namespace AnkiPlus_MAUI
             text = Regex.Replace(text, @"\{\{purple\|(.*?)\}\}", "<span style='color:purple;'>$1</span>");
             text = Regex.Replace(text, @"\{\{orange\|(.*?)\}\}", "<span style='color:orange;'>$1</span>");
 
-            // ã•t‚«E‰º•t‚«•ÏŠ·
+            // ä¸Šä»˜ããƒ»ä¸‹ä»˜ãå¤‰æ›
             text = Regex.Replace(text, @"\^\^(.*?)\^\^", "<sup>$1</sup>");
             text = Regex.Replace(text, @"~~(.*?)~~", "<sub>$1</sub>");
 
-            // •K—v‚È•”•ª‚¾‚¯ƒfƒR[ƒhˆ—
+            // å¿…è¦ãªéƒ¨åˆ†ã ã‘ãƒ‡ã‚³ãƒ¼ãƒ‰å‡¦ç†
             text = Regex.Replace(text, @"&lt;img(.*?)&gt;", "<img$1>");
 
-            // ‰üs‚ğ `<br>` ‚É•ÏŠ·
+            // æ”¹è¡Œã‚’ `<br>` ã«å¤‰æ›
             text = text.Replace(Environment.NewLine, "<br>").Replace("\n", "<br>");
 
 
-            // HTML ƒeƒ“ƒvƒŒ[ƒg
+            // HTML ãƒ†ãƒ³ãƒ—ãƒ¬ãƒ¼ãƒˆ
             string htmlTemplate = $@"
             <html>
             <head>
@@ -607,7 +607,7 @@ namespace AnkiPlus_MAUI
             return htmlTemplate;
         }
 
-        // Œ‹‰Ê‚ğ‘¦•Û‘¶
+        // çµæœã‚’å³æ™‚ä¿å­˜
         private void SaveResultsToFile()
         {
             try
@@ -621,15 +621,15 @@ namespace AnkiPlus_MAUI
                     int questionNumber = entry.Key;
                     var (correct, incorrect) = entry.Value;
 
-                    resultLines.Add($"{questionNumber}: ³‰ğ: {correct}‰ñ, •s³‰ğ: {incorrect}‰ñ");
+                    resultLines.Add($"{questionNumber}: æ­£è§£: {correct}å›, ä¸æ­£è§£: {incorrect}å›");
                 }
 
                 File.WriteAllLines(resultsFilePath, resultLines);
-                Debug.WriteLine($"Œ‹‰Ê‚ğ•Û‘¶‚µ‚Ü‚µ‚½: {resultsFilePath}");
+                Debug.WriteLine($"çµæœã‚’ä¿å­˜ã—ã¾ã—ãŸ: {resultsFilePath}");
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Œ‹‰Ê‚Ì•Û‘¶’†‚ÉƒGƒ‰[‚ª”­¶: {ex.Message}");
+                Debug.WriteLine($"çµæœã®ä¿å­˜ä¸­ã«ã‚¨ãƒ©ãƒ¼ãŒç™ºç”Ÿ: {ex.Message}");
             }
         }
 

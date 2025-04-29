@@ -166,4 +166,4 @@ namespace AnkiPlus_MAUI.Views
         Marker,
         Eraser
     }
-} 
+}

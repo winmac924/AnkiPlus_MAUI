@@ -5,10 +5,10 @@ using SkiaSharp.Views.Maui;
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Storage;
 using SkiaSharp.Views.Maui.Controls;
-using AnkiPlus_MAUI.Views;
 using System.Diagnostics;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using AnkiPlus_MAUI.Views;
 
 namespace AnkiPlus_MAUI
 {
@@ -16,50 +16,46 @@ namespace AnkiPlus_MAUI
     {
         private List<DrawingCanvas> _drawingCanvases;
         private DrawingCanvas _activeCanvas;
-        private readonly Dictionary<string, SKColor> _colors = new Dictionary<string, SKColor>
-        {
-            { "黒", SKColors.Black },
-            { "白", SKColors.White },
-            { "赤", SKColors.Red },
-            { "青", SKColors.Blue },
-            { "緑", SKColors.Green },
-            { "黄", SKColors.Yellow },
-            { "オレンジ", SKColors.Orange }
-        };
-        private bool _isColorBox1Selected = true;
-        private bool _isPickerVisible = false;
         private readonly string _noteName;
+        private string tempExtractPath; // 一時展開パス
+        private string ankplsFilePath;  // .ankplsファイルのパス
 
-        public NotePage(string noteName)
+        public NotePage(string noteName, string tempPath)
         {
             _noteName = noteName;
             InitializeComponent();
             _drawingCanvases = new List<DrawingCanvas>();
-            
-            // Initialize color picker items
-            ColorPicker.ItemsSource = _colors.Keys.ToList();
 
+            // パス設定
+            string documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            ankplsFilePath = Path.Combine(documentsPath, "AnkiPlus", $"{_noteName}.ankpls");
+
+            // 一時ディレクトリのパスを設定
+            string relativePath = Path.GetRelativePath(Path.Combine(documentsPath, "AnkiPlus"), Path.GetDirectoryName(ankplsFilePath));
+            tempExtractPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Temp",
+                "AnkiPlus",
+                relativePath,
+                $"{_noteName}_temp"
+            );
+
+            Debug.WriteLine($"Temporary path: {tempExtractPath}");
             // キャッシュディレクトリの初期化
             InitializeCacheDirectory();
         }
 
         private void InitializeCacheDirectory()
         {
-            var tempDirectory = Path.Combine(
-                Path.GetTempPath(),
-                "AnkiPlus",
-                $"{_noteName}_temp"
-            );
-
-            if (!Directory.Exists(tempDirectory))
+            if (!Directory.Exists(tempExtractPath))
             {
-                Directory.CreateDirectory(tempDirectory);
-                Directory.CreateDirectory(Path.Combine(tempDirectory, "PageCache"));
+                Directory.CreateDirectory(tempExtractPath);
+                Directory.CreateDirectory(Path.Combine(tempExtractPath, "PageCache"));
             }
             else
             {
                 // キャッシュが存在する場合は、drawing_data.jsonを確認
-                var drawingDataPath = Path.Combine(tempDirectory, "drawing_data.json");
+                var drawingDataPath = Path.Combine(tempExtractPath, "drawing_data.json");
                 if (File.Exists(drawingDataPath))
                 {
                     try
@@ -87,7 +83,7 @@ namespace AnkiPlus_MAUI
         {
             foreach (var canvas in _drawingCanvases)
             {
-                canvas.SetTool(DrawingCanvas.DrawingTool.Pen);
+                canvas.SetTool(DrawingTool.Pen);
             }
         }
 
@@ -95,7 +91,7 @@ namespace AnkiPlus_MAUI
         {
             foreach (var canvas in _drawingCanvases)
             {
-                canvas.SetTool(DrawingCanvas.DrawingTool.Marker);
+                canvas.SetTool(DrawingTool.Marker);
             }
         }
 
@@ -103,7 +99,7 @@ namespace AnkiPlus_MAUI
         {
             foreach (var canvas in _drawingCanvases)
             {
-                canvas.SetTool(DrawingCanvas.DrawingTool.Eraser);
+                canvas.SetTool(DrawingTool.Eraser);
             }
         }
 
@@ -126,62 +122,98 @@ namespace AnkiPlus_MAUI
             _activeCanvas?.Clear();
         }
 
-        private void OnColorBox1Tapped(object sender, EventArgs e)
+        private async Task LoadPdfAsync(string filePath)
         {
-            if (sender is Frame frame)
+            try
             {
-                var position = frame.Bounds.Location;
-                _activeCanvas?.ShowColorMenu(new SKPoint((float)position.X, (float)position.Y));
-            }
-        }
-
-        private void OnColorBox2Tapped(object sender, EventArgs e)
-        {
-            if (sender is Frame frame)
-            {
-                var position = frame.Bounds.Location;
-                _activeCanvas?.ShowColorMenu(new SKPoint((float)position.X, (float)position.Y));
-            }
-        }
-
-        private void OnColorPickerSelectedIndexChanged(object sender, EventArgs e)
-        {
-            if (ColorPicker.SelectedItem == null) return;
-
-            var selectedColorName = ColorPicker.SelectedItem.ToString();
-            if (_colors.TryGetValue(selectedColorName, out var color))
-            {
-                var mauiColor = new Color(color.Red / 255f, color.Green / 255f, color.Blue / 255f);
-                
-                if (_isColorBox1Selected)
-                {
-                    ColorBox1.BackgroundColor = mauiColor;
-                }
-                else
-                {
-                    ColorBox2.BackgroundColor = mauiColor;
-                }
-                
+                // 既存のキャンバスをクリア
                 foreach (var canvas in _drawingCanvases)
                 {
-                    canvas.SetPenColor(color);
-                    canvas.SetTool(DrawingCanvas.DrawingTool.Pen);
+                    canvas.Dispose();
                 }
+                _drawingCanvases.Clear();
+                PageContainer.Children.Clear();
+
+                // 新しいPDFを読み込む
+                var newCanvas = new DrawingCanvas();
+                newCanvas.InitializeCacheDirectory(_noteName);
+                newCanvas.ParentScrollView = MainScrollView;
+
+                // キャンバスのタッチイベントを設定
+                newCanvas.Touch += (s, e) =>
+                {
+                    if (e.ActionType == SKTouchAction.Pressed && e.MouseButton == SKMouseButton.Right)
+                    {
+                        // 右クリックでコンテキストメニューを表示
+                        ShowContextMenu(e.Location);
+                    }
+                    _activeCanvas = newCanvas;
+                };
+
+                _drawingCanvases.Add(newCanvas);
+                PageContainer.Children.Add(newCanvas);
+
+                await newCanvas.LoadPdfAsync(filePath);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error loading PDF: {ex.Message}");
             }
         }
 
-        private void UpdateColorBoxBorders()
+        private async void ShowContextMenu(SKPoint location)
         {
-            var selectedBorderColor = Colors.Black;
-            var unselectedBorderColor = Colors.Gray;
+            var action = await DisplayActionSheet(
+                "操作を選択",
+                "キャンセル",
+                null,
+                "元に戻す",
+                "やり直す",
+                "クリア"
+            );
 
-            ColorFrame1.BorderColor = _isColorBox1Selected ? selectedBorderColor : unselectedBorderColor;
-            ColorFrame2.BorderColor = !_isColorBox1Selected ? selectedBorderColor : unselectedBorderColor;
+            switch (action)
+            {
+                case "元に戻す":
+                    _activeCanvas?.Undo();
+                    break;
+                case "やり直す":
+                    _activeCanvas?.Redo();
+                    break;
+                case "クリア":
+                    _activeCanvas?.Clear();
+                    break;
+            }
         }
 
-        private async Task ShowColorPicker()
+        private async Task LoadImageAsync(string filePath)
         {
-            ColorPicker.Focus();
+            try
+            {
+                var canvas = new DrawingCanvas();
+                canvas.InitializeCacheDirectory(_noteName);
+                canvas.ParentScrollView = MainScrollView;
+
+                // キャンバスのタッチイベントを設定
+                canvas.Touch += (s, e) =>
+                {
+                    if (e.ActionType == SKTouchAction.Pressed && e.MouseButton == SKMouseButton.Right)
+                    {
+                        // 右クリックでコンテキストメニューを表示
+                        ShowContextMenu(e.Location);
+                    }
+                    _activeCanvas = canvas;
+                };
+
+                _drawingCanvases.Add(canvas);
+                PageContainer.Children.Add(canvas);
+
+                await canvas.LoadImageAsync(filePath);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error loading image: {ex.Message}");
+            }
         }
 
         private async void OnImportClicked(object sender, EventArgs e)
@@ -226,133 +258,9 @@ namespace AnkiPlus_MAUI
             }
         }
 
-        private async Task LoadPdfAsync(string filePath)
-        {
-            try
-            {
-                // 既存のキャンバスをクリア
-                foreach (var canvas in _drawingCanvases)
-                {
-                    canvas.Dispose();
-                }
-                _drawingCanvases.Clear();
-                PageContainer.Children.Clear();
-
-                // キャッシュディレクトリのパスを取得
-                var tempDirectory = Path.Combine(
-                    Path.GetTempPath(),
-                    "AnkiPlus",
-                    $"{_noteName}_temp"
-                );
-
-                // drawing_data.jsonを読み込む
-                var drawingDataPath = Path.Combine(tempDirectory, "drawing_data.json");
-                DrawingCanvas.DrawingData drawingData = null;
-                if (File.Exists(drawingDataPath))
-                {
-                    try
-                    {
-                        var json = await File.ReadAllTextAsync(drawingDataPath);
-                        drawingData = System.Text.Json.JsonSerializer.Deserialize<DrawingCanvas.DrawingData>(json);
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.WriteLine($"Error loading drawing data: {ex.Message}");
-                    }
-                }
-
-                // 新しいPDFを読み込む
-                var newCanvas = new DrawingCanvas();
-                newCanvas.InitializeCacheDirectory(_noteName);
-                newCanvas.ParentScrollView = MainScrollView;
-                
-                // キャンバスのタッチイベントを設定
-                newCanvas.Touch += (s, e) => {
-                    _activeCanvas = newCanvas;
-                };
-
-                _drawingCanvases.Add(newCanvas);
-                PageContainer.Children.Add(newCanvas);
-
-                // PDFを読み込む前に、保存された描画データを設定
-                if (drawingData != null)
-                {
-                    newCanvas.SetDrawingData(drawingData);
-                }
-
-                await newCanvas.LoadPdfAsync(filePath);
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Error loading PDF: {ex.Message}");
-            }
-        }
-
-        private async Task LoadImageAsync(string filePath)
-        {
-            try
-            {
-                var canvas = new DrawingCanvas();
-                canvas.InitializeCacheDirectory(_noteName);
-                canvas.ParentScrollView = MainScrollView;
-                
-                // キャンバスのタッチイベントを設定
-                canvas.Touch += (s, e) => {
-                    _activeCanvas = canvas;
-                };
-
-                _drawingCanvases.Add(canvas);
-                PageContainer.Children.Add(canvas);
-
-                await canvas.LoadImageAsync(filePath);
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Error loading image: {ex.Message}");
-            }
-        }
-
-        private void OnTextClicked(object sender, EventArgs e)
-        {
-            foreach (var canvas in _drawingCanvases)
-            {
-                canvas.SetTool(DrawingCanvas.DrawingTool.Text);
-            }
-        }
-
-        protected override void OnHandlerChanged()
-        {
-            base.OnHandlerChanged();
-            if (Handler != null)
-            {
-                // キーボードイベントのハンドラを追加
-                if (Handler.PlatformView is Microsoft.Maui.Controls.Page page)
-                {
-                    page.Focused += OnPageFocused;
-                }
-            }
-        }
-
-        private void OnPageFocused(object sender, FocusEventArgs e)
-        {
-            if (e.IsFocused)
-            {
-                // ページがフォーカスされた時の処理
-                // 必要に応じて実装
-            }
-        }
-
         protected override void OnDisappearing()
         {
             base.OnDisappearing();
-            if (Handler != null)
-            {
-                // イベントハンドラを削除
-                if (Handler.PlatformView is Microsoft.Maui.Controls.Page page)
-                {
-                    page.Focused -= OnPageFocused;
-                }
-            }
             foreach (var canvas in _drawingCanvases)
             {
                 canvas.Dispose();

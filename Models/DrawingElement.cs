@@ -9,4 +9,4 @@ namespace AnkiPlus_MAUI.Drawing
         Eraser,
         Ruler
     }
-} 
+}

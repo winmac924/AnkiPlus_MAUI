@@ -4,6 +4,7 @@ using System;
 using System.Threading.Tasks;
 using System.Linq;
 using System.Collections.Generic;
+using System.Diagnostics;
 
 namespace AnkiPlus_MAUI
 {
@@ -50,10 +51,11 @@ namespace AnkiPlus_MAUI
             if (_currentPath.Count > 1)
             {
                 var parentDir = Path.GetDirectoryName(currentFolder);
-                Notes.Add(new Note { 
-                    Name = "..", 
-                    Icon = "folder.png", 
-                    IsFolder = true, 
+                Notes.Add(new Note
+                {
+                    Name = "..",
+                    Icon = "folder.png",
+                    IsFolder = true,
                     FullPath = parentDir,
                     LastModified = Directory.GetLastWriteTime(parentDir)
                 });
@@ -67,10 +69,11 @@ namespace AnkiPlus_MAUI
             foreach (var dir in directories)
             {
                 var dirName = Path.GetFileName(dir);
-                items.Add(new Note { 
-                    Name = dirName, 
-                    Icon = "folder.png", 
-                    IsFolder = true, 
+                items.Add(new Note
+                {
+                    Name = dirName,
+                    Icon = "folder.png",
+                    IsFolder = true,
                     FullPath = dir,
                     LastModified = Directory.GetLastWriteTime(dir)
                 });
@@ -81,10 +84,11 @@ namespace AnkiPlus_MAUI
             foreach (var file in files)
             {
                 var fileName = Path.GetFileNameWithoutExtension(file);
-                items.Add(new Note { 
-                    Name = fileName, 
-                    Icon = "note1.png", 
-                    IsFolder = false, 
+                items.Add(new Note
+                {
+                    Name = fileName,
+                    Icon = "note1.png",
+                    IsFolder = false,
                     FullPath = file,
                     LastModified = File.GetLastWriteTime(file)
                 });
@@ -131,12 +135,12 @@ namespace AnkiPlus_MAUI
                     if (e.GetType().ToString().Contains("Pen"))
                     {
                         // スタイラスペンの場合は直接NotePageへ
-                        await Navigation.PushAsync(new NotePage(note.Name));
                     }
                     else
                     {
                         // 指/マウスの場合は確認画面へ
                         await Navigation.PushAsync(new Confirmation(note));
+                        Debug.WriteLine($"Selected Note: {note.FullPath}");
                     }
                 }
             }
@@ -145,7 +149,7 @@ namespace AnkiPlus_MAUI
         private async void OnCreateNewNoteClicked(object sender, EventArgs e)
         {
             string action = await DisplayActionSheet("新規作成", "キャンセル", null, "ノート", "フォルダ");
-            
+
             if (action == "ノート")
             {
                 string newNoteName = await DisplayPromptAsync("新規ノート作成", "ノートの名前を入力してください");
@@ -183,13 +187,13 @@ namespace AnkiPlus_MAUI
         protected override void OnSizeAllocated(double width, double height)
         {
             base.OnSizeAllocated(width, height);
-            
+
             // 最小幅を設定（1つのアイテムが表示できる最小幅）
             if (width < NoteWidth + (PaddingSize * 2))
             {
                 width = NoteWidth + (PaddingSize * 2);
             }
-            
+
             UpdateSpan(width);
         }
 
@@ -199,22 +203,22 @@ namespace AnkiPlus_MAUI
             {
                 // パディングとマージンを考慮した実効幅を計算
                 double effectiveWidth = width - (PaddingSize * 2);
-                
+
                 // 1列に表示できるアイテム数を計算（マージンを考慮）
                 int newSpan = Math.Max(1, (int)((effectiveWidth + NoteMargin) / (NoteWidth + NoteMargin)));
-                
+
                 // 現在のアイテム数で必要な列数を計算
                 int itemCount = Notes?.Count ?? 0;
                 int minRequiredSpan = Math.Max(1, Math.Min(newSpan, itemCount));
 
                 // 実際に使用する幅を計算（中央寄せのため）
                 double usedWidth = (minRequiredSpan * (NoteWidth + NoteMargin)) - NoteMargin;
-                
+
                 // 新しい左右のパディングを計算（中央寄せ）
                 double newPadding = Math.Max(PaddingSize, (width - usedWidth) / 2);
-                
+
                 // CollectionViewのマージンを更新
-                NotesCollectionView.Margin = new Thickness(newPadding, NotesCollectionView.Margin.Top, 
+                NotesCollectionView.Margin = new Thickness(newPadding, NotesCollectionView.Margin.Top,
                                                          newPadding, NotesCollectionView.Margin.Bottom);
 
                 // Spanを更新
