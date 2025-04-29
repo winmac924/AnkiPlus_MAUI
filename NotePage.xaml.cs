@@ -22,13 +22,13 @@ namespace AnkiPlus_MAUI
 
         public NotePage(string noteName, string tempPath)
         {
-            _noteName = noteName;
+            _noteName = Path.GetFileNameWithoutExtension(noteName);
             InitializeComponent();
             _drawingCanvases = new List<DrawingCanvas>();
 
-            // パス設定
+            // ドキュメントパス設定
             string documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-            ankplsFilePath = Path.Combine(documentsPath, "AnkiPlus", $"{_noteName}.ankpls");
+            ankplsFilePath = noteName;
 
             // 一時ディレクトリのパスを設定
             string relativePath = Path.GetRelativePath(Path.Combine(documentsPath, "AnkiPlus"), Path.GetDirectoryName(ankplsFilePath));
@@ -41,8 +41,6 @@ namespace AnkiPlus_MAUI
             );
 
             Debug.WriteLine($"Temporary path: {tempExtractPath}");
-            // キャッシュディレクトリの初期化
-            InitializeCacheDirectory();
         }
 
         private void InitializeCacheDirectory()
@@ -136,7 +134,7 @@ namespace AnkiPlus_MAUI
 
                 // 新しいPDFを読み込む
                 var newCanvas = new DrawingCanvas();
-                newCanvas.InitializeCacheDirectory(_noteName);
+                newCanvas.InitializeCacheDirectory(_noteName, tempExtractPath);
                 newCanvas.ParentScrollView = MainScrollView;
 
                 // キャンバスのタッチイベントを設定
@@ -191,7 +189,7 @@ namespace AnkiPlus_MAUI
             try
             {
                 var canvas = new DrawingCanvas();
-                canvas.InitializeCacheDirectory(_noteName);
+                canvas.InitializeCacheDirectory(_noteName, tempExtractPath);
                 canvas.ParentScrollView = MainScrollView;
 
                 // キャンバスのタッチイベントを設定
@@ -256,6 +254,46 @@ namespace AnkiPlus_MAUI
             {
                 Debug.WriteLine($"Error saving file: {ex.Message}");
             }
+        }
+
+        protected override async void OnAppearing()
+        {
+            base.OnAppearing();
+
+            // 既存キャンバスをクリア
+            foreach (var canvas in _drawingCanvases)
+            {
+                canvas.Dispose();
+            }
+            _drawingCanvases.Clear();
+            PageContainer.Children.Clear();
+
+            // drawing_data.jsonがあれば自動ロード
+            var drawingDataPath = Path.Combine(tempExtractPath, "drawing_data.json");
+            if (File.Exists(drawingDataPath))
+            {
+                try
+                {
+                    var json = File.ReadAllText(drawingDataPath);
+                    var drawingData = System.Text.Json.JsonSerializer.Deserialize<DrawingCanvas.DrawingData>(json);
+                    
+                    // 新しいキャンバスを作成
+                    var newCanvas = new DrawingCanvas();
+                    newCanvas.InitializeCacheDirectory(_noteName, tempExtractPath);
+                    newCanvas.ParentScrollView = MainScrollView;
+                    _drawingCanvases.Add(newCanvas);
+                    PageContainer.Children.Add(newCanvas);
+
+                    // 描画データを読み込む（保存は行わない）
+                    await newCanvas.LoadDrawingDataAsync();
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"Error loading cached data: {ex.Message}");
+                }
+            }
+            // drawing_data.jsonがなければ何もしない（または空のキャンバスを表示）
         }
 
         protected override void OnDisappearing()

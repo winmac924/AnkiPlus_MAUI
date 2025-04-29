@@ -18,14 +18,9 @@ namespace AnkiPlus_MAUI
         private string cardsFilePath;
         private string tempExtractPath;
         private List<string> cards = new List<string>();
-        private int currentIndex = 0;
-        private int correctCount = 0;
-        private int incorrectCount = 0;
         private string selectedImagePath = "";
         private List<SKRect> selectionRects = new List<SKRect>();
         private Dictionary<int, (int correct, int incorrect)> results = new Dictionary<int, (int, int)>();
-        private bool showAnswer = false;
-        private string frontText = "";
         private string ankplsFilePath;
         private List<string> imagePaths = new List<string>();
         private int imageCount = 0;
@@ -40,46 +35,11 @@ namespace AnkiPlus_MAUI
             tempExtractPath = tempPath;
             cardsFilePath = Path.Combine(tempExtractPath, "cards.txt");
             LoadCards();
-            DisplayCard();
             CardTypePicker.SelectedIndex = 0; // 初期値を「基本」に設定
-
             // ノートの保存フォルダを設定
-            string documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-            ankplsFilePath = Path.Combine(documentsPath, "AnkiPlus", "default.ankpls");
+            ankplsFilePath = cardsPath;
         }
 
-        private void LoadAnkplsFile()
-        {
-            try
-            {
-                // .ankpls がない場合、新規作成
-                if (!File.Exists(ankplsFilePath))
-                {
-                    Directory.CreateDirectory(tempExtractPath);
-                    Directory.CreateDirectory(Path.Combine(tempExtractPath, "img"));
-
-                    // 空の cards.txt を作成
-                    File.WriteAllText(Path.Combine(tempExtractPath, "cards.txt"), "");
-
-                    // .ankpls を作成（ZIP圧縮）
-                    using (FileStream zipToCreate = new FileStream(ankplsFilePath, FileMode.Create))
-                    using (ZipArchive archive = new ZipArchive(zipToCreate, ZipArchiveMode.Create, true))
-                    {
-                        archive.CreateEntryFromFile(Path.Combine(tempExtractPath, "cards.txt"), "cards.txt");
-                    }
-                }
-                else
-                {
-                    // 既存の .ankpls を展開
-                    Directory.CreateDirectory(tempExtractPath);
-                    ZipFile.ExtractToDirectory(ankplsFilePath, tempExtractPath, true);
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Error handling .ankpls file: {ex.Message}");
-            }
-        }
         // 問題数を読み込む
         private async Task<int> GetCardCountAsync(string cardsFilePath)
         {
@@ -183,7 +143,7 @@ namespace AnkiPlus_MAUI
                 var imgFileName = $"img{imageCount}.png";
                 var imgFilePath = Path.Combine(imgFolderPath, imgFileName);
                 SaveBitmapToFile(imageBitmap, imgFilePath);
-
+                selectedImagePath = imgFileName;
                 imagePaths.Add(imgFilePath);
                 CanvasView.InvalidateSurface();
             }
@@ -635,15 +595,6 @@ namespace AnkiPlus_MAUI
             }
         }
 
-        private void DisplayCard()
-        {
-            if (cards.Count > 0 && currentIndex < cards.Count)
-            {
-                frontText = cards[currentIndex];
-                FrontTextEditor.Text = frontText;
-                showAnswer = false;
-                BackTextEditor.Text = "";
-            }
-        }
+
     }
 }

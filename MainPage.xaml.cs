@@ -139,7 +139,7 @@ namespace AnkiPlus_MAUI
                     else
                     {
                         // 指/マウスの場合は確認画面へ
-                        await Navigation.PushAsync(new Confirmation(note));
+                        await Navigation.PushAsync(new Confirmation(note.FullPath));
                         Debug.WriteLine($"Selected Note: {note.FullPath}");
                     }
                 }

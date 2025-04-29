@@ -9,7 +9,7 @@
                HorizontalOptions="Center"/>
 
         <!-- 問題数の表示 -->
-        <Label x:Name="TotalQuestionsLabel" Text="問題数: 0"
+        <Label x:Name="TotalQuestionsLabel" Text="カード枚数: 0"
                FontSize="18" HorizontalOptions="Center"/>
 
         <!-- 復習する問題数の入力 -->

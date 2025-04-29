@@ -155,14 +155,53 @@ namespace AnkiPlus_MAUI
                 DisplayImageFillCard(lines);
             }
         }
+        // 基本カードを解析
+        private (string FrontText, string BackText) ParseBasicCard(List<string> lines)
+        {
+            var frontText = new StringBuilder();
+            var backText = new StringBuilder();
+            bool isFront = false;
+            bool isBack = false;
+
+            foreach (var line in lines)
+            {
+                if (line.StartsWith("表面:"))
+                {
+                    isFront = true;
+                    isBack = false;
+                    frontText.AppendLine(line.Substring(3));
+                }
+                else if (line.StartsWith("裏面:"))
+                {
+                    isBack = true;
+                    isFront = false;
+                    backText.AppendLine(line.Substring(3));
+                }
+                else
+                {
+                    if (isFront)
+                    {
+                        frontText.AppendLine(line);
+                    }
+                    else if (isBack)
+                    {
+                        backText.AppendLine(line);
+                    }
+                }
+            }
+
+            return (frontText.ToString().Trim(), backText.ToString().Trim());
+        }
         // 基本・穴埋めカード表示
         private void DisplayBasicCard(List<string> lines)
         {
             BasicCardLayout.IsVisible = true;
 
-            frontText = lines.FirstOrDefault(l => l.StartsWith("表面:"))?.Substring(3) ?? "";
-            string backText = lines.FirstOrDefault(l => l.StartsWith("裏面:"))?.Substring(3) ?? "";
-            // 初回表示時は解答非表示
+            // 複数行対応でパース
+            var (frontText, backText) = ParseBasicCard(lines);
+            this.frontText = frontText; // クラス変数に保存
+
+            // 表面と裏面のプレビュー表示
             FrontPreviewWebView.Source = new HtmlWebViewSource
             {
                 Html = ConvertMarkdownToHtml(frontText, showAnswer: false)
