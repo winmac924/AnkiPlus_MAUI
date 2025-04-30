@@ -5,6 +5,8 @@ using System.IO.Compression;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Web;
+using System.Linq;
+using System.Collections.Generic;
 
 namespace AnkiPlus_MAUI
 {
@@ -77,6 +79,36 @@ namespace AnkiPlus_MAUI
                 }
 
                 Debug.WriteLine($"Loaded {cards.Count} cards");
+
+                // 結果ファイルが存在する場合、未解答の問題から始める
+                string resultsFilePath = Path.Combine(tempExtractPath, "results.txt");
+                if (File.Exists(resultsFilePath))
+                {
+                    var resultLines = File.ReadAllLines(resultsFilePath);
+                    var answeredQuestions = new HashSet<int>();
+
+                    foreach (var line in resultLines)
+                    {
+                        var parts = line.Split(':');
+                        if (parts.Length >= 3)
+                        {
+                            if (int.TryParse(parts[0].Trim(), out int questionNumber))
+                            {
+                                answeredQuestions.Add(questionNumber);
+                            }
+                        }
+                    }
+
+                    // 未解答の問題を探す
+                    for (int i = 0; i < cards.Count; i++)
+                    {
+                        if (!answeredQuestions.Contains(i + 1))
+                        {
+                            currentIndex = i;
+                            break;
+                        }
+                    }
+                }
             }
         }
         // 結果ファイルを読み込む（フォーマット対応）
@@ -223,7 +255,6 @@ namespace AnkiPlus_MAUI
             ChoiceCardLayout.IsVisible = true;
 
             var (question, explanation, choices, isCorrectFlags) = ParseChoiceCard(lines);
-            currentCorrectFlags = isCorrectFlags;  // 現在の正誤情報を保持
 
             ChoiceQuestionWebView.Source = new HtmlWebViewSource
             {
@@ -233,9 +264,15 @@ namespace AnkiPlus_MAUI
             ChoiceContainer.Children.Clear();
             checkBoxes.Clear();
 
-            for (int i = 0; i < choices.Count; i++)
+            // 選択肢をシャッフル
+            var random = new Random();
+            var shuffledIndices = Enumerable.Range(0, choices.Count).OrderBy(x => random.Next()).ToList();
+            var shuffledChoices = shuffledIndices.Select(i => choices[i]).ToList();
+            currentCorrectFlags = shuffledIndices.Select(i => isCorrectFlags[i]).ToList();  // シャッフルされた正誤フラグを保存
+
+            for (int i = 0; i < shuffledChoices.Count; i++)
             {
-                var choiceText = choices[i];
+                var choiceText = shuffledChoices[i];
 
                 var choiceLayout = new HorizontalStackLayout
                 {
@@ -594,7 +631,7 @@ namespace AnkiPlus_MAUI
             if (showAnswer)
             {
                 Debug.WriteLine(frontText);
-                // 解答表示時は `<<blank|文字>>` → `({文字})`
+                // 解答表示時は `<<blank|文字>>` → `(文字)`
                 text = Regex.Replace(text, @"<<blank\|(.*?)>>", "($1)");
             }
             else
@@ -616,6 +653,12 @@ namespace AnkiPlus_MAUI
             text = Regex.Replace(text, @"\{\{yellow\|(.*?)\}\}", "<span style='color:yellow;'>$1</span>");
             text = Regex.Replace(text, @"\{\{purple\|(.*?)\}\}", "<span style='color:purple;'>$1</span>");
             text = Regex.Replace(text, @"\{\{orange\|(.*?)\}\}", "<span style='color:orange;'>$1</span>");
+
+            // 穴埋めの解答を赤字に変換（エスケープ後）
+            if (showAnswer)
+            {
+                text = Regex.Replace(text, @"\((.*?)\)", "(<span style='color:red;'>$1</span>)");
+            }
 
             // 上付き・下付き変換
             text = Regex.Replace(text, @"\^\^(.*?)\^\^", "<sup>$1</sup>");

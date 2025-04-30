@@ -19,7 +19,7 @@
             <!-- 基本・穴埋めカード -->
             <VerticalStackLayout x:Name="BasicCardLayout" IsVisible="False">
                 <Label Text="基本・穴埋めカード" FontSize="20" />
-                <WebView x:Name="FrontPreviewWebView" HeightRequest="250" />
+                <WebView x:Name="FrontPreviewWebView" HeightRequest="300" />
                 <Grid>
                     <BoxView x:Name="AnswerLine"
                              BackgroundColor="Gray"
@@ -31,9 +31,9 @@
 
             <!-- 選択肢カード -->
             <VerticalStackLayout x:Name="ChoiceCardLayout" IsVisible="False">
-                <WebView x:Name="ChoiceQuestionWebView"  HeightRequest="250"/>
+                <WebView x:Name="ChoiceQuestionWebView"  HeightRequest="300"/>
                 <VerticalStackLayout x:Name="ChoiceContainer" />
-                <WebView x:Name="ChoiceExplanationWebView" HeightRequest="150" IsVisible="False" />
+                <WebView x:Name="ChoiceExplanationWebView" HeightRequest="300" IsVisible="False" />
             </VerticalStackLayout>
 
             <!-- 画像穴埋めカード -->

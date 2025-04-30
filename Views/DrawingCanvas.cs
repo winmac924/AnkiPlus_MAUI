@@ -202,11 +202,11 @@ namespace AnkiPlus_MAUI.Views
 
         private readonly Dictionary<string, float> _markerWidths = new Dictionary<string, float>
         {
-            { "細", 5.0f },
-            { "中", 10.0f },
-            { "太", 20.0f },
-            { "極太", 30.0f },
-            { "特大", 40.0f }
+            { "細", 10.0f },
+            { "中", 20.0f },
+            { "太", 30.0f },
+            { "極太", 50.0f },
+            { "特大", 80.0f }
         };
 
         private readonly Dictionary<string, float> _transparencies = new Dictionary<string, float>
