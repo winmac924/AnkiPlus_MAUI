@@ -199,6 +199,19 @@ namespace AnkiPlus_MAUI
                 Debug.WriteLine($"Processing .ankpls file: {ankplsFile}");
                 try
                 {
+                    // 一時フォルダのパスを作成
+                    var tempFolder = Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                        "Temp",
+                        "AnkiPlus",
+                        Path.GetFileNameWithoutExtension(ankplsFile) + "_temp");
+
+                    // 一時フォルダが存在しない場合は作成
+                    if (!Directory.Exists(tempFolder))
+                    {
+                        Directory.CreateDirectory(tempFolder);
+                    }
+
                     using (var archive = ZipFile.OpenRead(ankplsFile))
                     {
                         // アーカイブ内のファイル一覧を表示
@@ -218,11 +231,55 @@ namespace AnkiPlus_MAUI
                                 var content = reader.ReadToEnd();
                                 Debug.WriteLine($"Found cards.txt with {content.Length} characters in {ankplsFile}");
                                 cards.Add(content);
+
+                                // cards.txtを一時フォルダに保存
+                                File.WriteAllText(Path.Combine(tempFolder, "cards.txt"), content);
                             }
                         }
                         else
                         {
                             Debug.WriteLine($"No cards.txt found in {ankplsFile}");
+                        }
+
+                        // results.txtを探す
+                        var resultsEntry = archive.Entries.FirstOrDefault(e => e.Name == "results.txt");
+                        if (resultsEntry != null)
+                        {
+                            using (var stream = resultsEntry.Open())
+                            using (var reader = new StreamReader(stream))
+                            {
+                                var content = reader.ReadToEnd();
+                                Debug.WriteLine($"Found results.txt with {content.Length} characters in {ankplsFile}");
+                                
+                                // results.txtを一時フォルダに保存
+                                File.WriteAllText(Path.Combine(tempFolder, "results.txt"), content);
+                            }
+                        }
+
+                        // imgフォルダを探す
+                        var imgEntries = archive.Entries.Where(e => e.FullName.StartsWith("img/")).ToList();
+                        if (imgEntries.Any())
+                        {
+                            // 一時フォルダ内にimgフォルダを作成
+                            var tempImgFolder = Path.Combine(tempFolder, "img");
+                            if (!Directory.Exists(tempImgFolder))
+                            {
+                                Directory.CreateDirectory(tempImgFolder);
+                            }
+
+                            // 画像ファイルを展開
+                            foreach (var entry in imgEntries)
+                            {
+                                var fileName = Path.GetFileName(entry.FullName);
+                                var targetPath = Path.Combine(tempImgFolder, fileName);
+                                
+                                using (var stream = entry.Open())
+                                using (var fileStream = File.Create(targetPath))
+                                {
+                                    stream.CopyTo(fileStream);
+                                }
+                                Debug.WriteLine($"Extracted image: {fileName}");
+                            }
                         }
                     }
                 }

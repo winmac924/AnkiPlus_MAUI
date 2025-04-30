@@ -86,10 +86,13 @@ namespace AnkiPlus_MAUI
         // カードを読み込む
         private void LoadCards()
         {
+            Debug.WriteLine($"Loading cards from: {cardsFilePath}");
             if (File.Exists(cardsFilePath))
             {
                 var content = File.ReadAllText(cardsFilePath);
+                Debug.WriteLine($"File content length: {content.Length}");
                 var lines = content.Split(new[] { '\r', '\n' }, StringSplitOptions.None);
+                Debug.WriteLine($"Total lines in file: {lines.Length}");
                 var card = new List<string>();
 
                 foreach (var line in lines)
@@ -98,7 +101,13 @@ namespace AnkiPlus_MAUI
                     {
                         if (card.Count > 0)
                         {
-                            cards.Add(string.Join("\n", card));
+                            // 空行を除去してカードを追加
+                            var trimmedCard = card.Where(l => !string.IsNullOrWhiteSpace(l)).ToList();
+                            if (trimmedCard.Count > 0)
+                            {
+                                cards.Add(string.Join("\n", trimmedCard));
+                                Debug.WriteLine($"Added card with {trimmedCard.Count} lines");
+                            }
                             card.Clear();
                         }
                     }
@@ -111,10 +120,16 @@ namespace AnkiPlus_MAUI
                 // 最後のカードを追加
                 if (card.Count > 0)
                 {
-                    cards.Add(string.Join("\n", card));
+                    // 空行を除去してカードを追加
+                    var trimmedCard = card.Where(l => !string.IsNullOrWhiteSpace(l)).ToList();
+                    if (trimmedCard.Count > 0)
+                    {
+                        cards.Add(string.Join("\n", trimmedCard));
+                        Debug.WriteLine($"Added final card with {trimmedCard.Count} lines");
+                    }
                 }
 
-                Debug.WriteLine($"Loaded {cards.Count} cards");
+                Debug.WriteLine($"Total cards loaded: {cards.Count}");
 
                 // 結果ファイルが存在する場合、未解答の問題から始める
                 string resultsFilePath = Path.Combine(tempExtractPath, "results.txt");
@@ -192,8 +207,11 @@ namespace AnkiPlus_MAUI
         // 問題を表示
         private async void DisplayCard()
         {
+            Debug.WriteLine($"DisplayCard called. Current index: {currentIndex}, Total cards: {cards.Count}");
+            
             if (currentIndex >= cards.Count)
             {
+                Debug.WriteLine("No more cards to display");
                 // 結果をファイルに保存
                 SaveResultsToFile();
                 await DisplayAlert("終了", "すべての問題が終了しました", "OK");
@@ -202,7 +220,20 @@ namespace AnkiPlus_MAUI
             }
 
             var card = cards[currentIndex];
-            var lines = card.Split('\n').Select(line => line.Trim()).ToList();
+            Debug.WriteLine($"Current card content: {card}");
+            var lines = card.Split('\n')
+                           .Select(line => line.Trim())
+                           .Where(line => !string.IsNullOrWhiteSpace(line))
+                           .ToList();
+            Debug.WriteLine($"Card lines count: {lines.Count}");
+
+            if (lines.Count == 0)
+            {
+                Debug.WriteLine("Empty card content, moving to next card");
+                currentIndex++;
+                DisplayCard();
+                return;
+            }
 
             // レイアウトの初期化
             BasicCardLayout.IsVisible = false;
@@ -212,15 +243,25 @@ namespace AnkiPlus_MAUI
 
             if (lines[0].Contains("基本"))
             {
+                Debug.WriteLine("Displaying basic card");
                 DisplayBasicCard(lines);
             }
             else if (lines[0].Contains("選択肢"))
             {
+                Debug.WriteLine("Displaying choice card");
                 DisplayChoiceCard(lines);
             }
             else if (lines[0].Contains("画像穴埋め"))
             {
+                Debug.WriteLine("Displaying image fill card");
                 DisplayImageFillCard(lines);
+            }
+            else
+            {
+                Debug.WriteLine($"Unknown card type: {lines[0]}");
+                // 不明なカードタイプの場合は次のカードへ
+                currentIndex++;
+                DisplayCard();
             }
         }
         // 基本カードを解析
