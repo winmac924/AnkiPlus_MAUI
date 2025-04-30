@@ -35,6 +35,48 @@ namespace AnkiPlus_MAUI
             LoadCards();
             DisplayCard();
         }
+
+        public Qa(List<string> cardsList)
+        {
+            InitializeComponent();
+            // 一時フォルダを作成（結果保存用）
+            tempExtractPath = Path.Combine(Path.GetTempPath(), "AnkiPlus_" + Guid.NewGuid().ToString());
+            Directory.CreateDirectory(tempExtractPath);
+
+            // カードデータを直接メモリ上で処理
+            cards = new List<string>();
+            foreach (var content in cardsList)
+            {
+                var lines = content.Split(new[] { '\r', '\n' }, StringSplitOptions.None);
+                var card = new List<string>();
+
+                foreach (var line in lines)
+                {
+                    if (line.Trim() == "---")
+                    {
+                        if (card.Count > 0)
+                        {
+                            cards.Add(string.Join("\n", card));
+                            card.Clear();
+                        }
+                    }
+                    else
+                    {
+                        card.Add(line);
+                    }
+                }
+
+                // 最後のカードを追加
+                if (card.Count > 0)
+                {
+                    cards.Add(string.Join("\n", card));
+                }
+            }
+
+            Debug.WriteLine($"Loaded {cards.Count} cards");
+            DisplayCard();
+        }
+
         protected override void OnAppearing()
         {
             base.OnAppearing();
@@ -46,24 +88,17 @@ namespace AnkiPlus_MAUI
         {
             if (File.Exists(cardsFilePath))
             {
-                var lines = File.ReadAllLines(cardsFilePath);
+                var content = File.ReadAllText(cardsFilePath);
+                var lines = content.Split(new[] { '\r', '\n' }, StringSplitOptions.None);
                 var card = new List<string>();
-                var isFirstCardSkipped = false; // 最初のカードをスキップするためのフラグ
 
                 foreach (var line in lines)
                 {
-                    if (line == "---")
+                    if (line.Trim() == "---")
                     {
                         if (card.Count > 0)
                         {
-                            if (isFirstCardSkipped)
-                            {
-                                cards.Add(string.Join("\n", card)); // 最初のカード以外を追加
-                            }
-                            else
-                            {
-                                isFirstCardSkipped = true; // 最初のカードをスキップ
-                            }
+                            cards.Add(string.Join("\n", card));
                             card.Clear();
                         }
                     }
@@ -73,7 +108,8 @@ namespace AnkiPlus_MAUI
                     }
                 }
 
-                if (card.Count > 0 && isFirstCardSkipped)
+                // 最後のカードを追加
+                if (card.Count > 0)
                 {
                     cards.Add(string.Join("\n", card));
                 }

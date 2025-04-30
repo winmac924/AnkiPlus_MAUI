@@ -28,6 +28,7 @@ namespace AnkiPlus_MAUI
         private SKPoint startPoint, endPoint;
         private bool isDragging = false;
         private const float HANDLE_SIZE = 15;
+        private bool removeNumbers = false;  // 番号削除のフラグ
 
         public Add(string cardsPath, string tempPath)
         {
@@ -75,6 +76,10 @@ namespace AnkiPlus_MAUI
             if (selectedType == "選択肢")
             {
                 MultipleChoiceLayout.IsVisible = true;
+                // 選択肢コンテナをクリア
+                ChoicesContainer.Children.Clear();
+                // 最初の選択肢を追加
+                OnAddChoice(sender, e);
             }
             else
             {
@@ -88,7 +93,6 @@ namespace AnkiPlus_MAUI
             {
                 ImageFillLayout.IsVisible = false;
             }
-
         }
         // テキスト変更時にプレビュー更新
         private void FrontOnTextChanged(object sender, TextChangedEventArgs e)
@@ -105,12 +109,111 @@ namespace AnkiPlus_MAUI
         {
             var stack = new StackLayout { Orientation = StackOrientation.Horizontal };
             var checkBox = new CheckBox();
-            var entry = new Entry { Placeholder = "選択肢を入力" };
+            var editor = new Editor
+            {
+                Placeholder = "選択肢を入力（改行で区切って複数入力可能）",
+                HeightRequest = 100,
+                AutoSize = EditorAutoSizeOption.TextChanges
+            };
+            editor.TextChanged += OnChoiceTextChanged;
 
             stack.Children.Add(checkBox);
-            stack.Children.Add(entry);
+            stack.Children.Add(editor);
 
             ChoicesContainer.Children.Add(stack);
+        }
+
+        // 番号削除トグルの処理
+        private void OnRemoveNumbersToggled(object sender, ToggledEventArgs e)
+        {
+            removeNumbers = e.Value;
+
+            // 選択肢コンテナが空でないことを確認
+            if (ChoicesContainer.Children.Count > 0)
+            {
+                // 最初のEditorを取得
+                var editor = ChoicesContainer.Children.OfType<StackLayout>()
+                    .SelectMany(s => s.Children.OfType<Editor>())
+                    .FirstOrDefault();
+
+                if (editor != null)
+                {
+                    OnChoiceTextChanged(editor, new TextChangedEventArgs("", editor.Text));
+                }
+            }
+        }
+
+        // 選択肢のテキストが変更されたときの処理
+        private void OnChoiceTextChanged(object sender, TextChangedEventArgs e)
+        {
+            var editor = sender as Editor;
+            if (editor == null)
+            {
+                Debug.WriteLine("OnChoiceTextChanged: Editor is null");
+                return;
+            }
+
+            Debug.WriteLine($"OnChoiceTextChanged: New text value: '{e.NewTextValue}'");
+            Debug.WriteLine($"OnChoiceTextChanged: Contains \\n: {e.NewTextValue.Contains("\n")}");
+            Debug.WriteLine($"OnChoiceTextChanged: Contains \\r: {e.NewTextValue.Contains("\r")}");
+            Debug.WriteLine($"OnChoiceTextChanged: Contains \\r\\n: {e.NewTextValue.Contains("\r\n")}");
+
+            // 改行が含まれている場合
+            if (e.NewTextValue.Contains("\n") || e.NewTextValue.Contains("\r"))
+            {
+                Debug.WriteLine("OnChoiceTextChanged: Processing newlines");
+
+                // 改行で分割し、空の行を除外
+                var choices = e.NewTextValue
+                    .Replace("\r\n", "\n")  // まず \r\n を \n に統一
+                    .Replace("\r", "\n")    // 残りの \r を \n に変換
+                    .Split(new[] { "\n" }, StringSplitOptions.RemoveEmptyEntries)  // \n で分割
+                    .Select(c => c.Trim())  // 各行の前後の空白を削除
+                    .Where(c => !string.IsNullOrWhiteSpace(c))  // 空の行を除外
+                    .Select(c => removeNumbers ? Regex.Replace(c, @"^\d+\.\s*", "") : c)  // 番号を削除（オプション）
+                    .ToList();
+
+                Debug.WriteLine($"OnChoiceTextChanged: Split into {choices.Count} choices");
+                for (int i = 0; i < choices.Count; i++)
+                {
+                    Debug.WriteLine($"Choice {i + 1}: '{choices[i]}'");
+                }
+
+                if (choices.Count > 0)
+                {
+                    Debug.WriteLine("OnChoiceTextChanged: Clearing choices container");
+                    // 選択肢コンテナをクリア
+                    ChoicesContainer.Children.Clear();
+
+                    // 各選択肢に対して新しいエントリを作成
+                    foreach (var choice in choices)
+                    {
+                        var stack = new StackLayout { Orientation = StackOrientation.Horizontal };
+                        var checkBox = new CheckBox();
+                        var newEditor = new Editor
+                        {
+                            Text = choice,
+                            HeightRequest = 40,
+                            AutoSize = EditorAutoSizeOption.TextChanges
+                        };
+
+                        stack.Children.Add(checkBox);
+                        stack.Children.Add(newEditor);
+
+                        ChoicesContainer.Children.Add(stack);
+                        Debug.WriteLine($"Added choice: '{choice}'");
+                    }
+                    Debug.WriteLine($"OnChoiceTextChanged: Total choices added: {ChoicesContainer.Children.Count}");
+                }
+                else
+                {
+                    Debug.WriteLine("OnChoiceTextChanged: No valid choices found after processing");
+                }
+            }
+            else
+            {
+                Debug.WriteLine("OnChoiceTextChanged: No newlines found in text");
+            }
         }
         // 画像選択と保存処理
         private async void OnSelectImage(object sender, EventArgs e)
@@ -487,19 +590,27 @@ namespace AnkiPlus_MAUI
 
             foreach (var stack in ChoicesContainer.Children.OfType<StackLayout>())
             {
-                var entry = stack.Children.OfType<Entry>().FirstOrDefault();
+                var entry = stack.Children.OfType<Editor>().FirstOrDefault();
                 var checkBox = stack.Children.OfType<CheckBox>().FirstOrDefault();
 
                 if (entry != null && !string.IsNullOrWhiteSpace(entry.Text))
                 {
+                    // 番号を削除（1. や 2. などの形式）
+                    string cleanText = Regex.Replace(entry.Text, @"^\d+\.\s*", "").Trim();
                     string isCorrect = checkBox?.IsChecked == true ? "正解" : "不正解";
-                    choices.Add($"{entry.Text} ({isCorrect})");
+                    choices.Add($"{cleanText} ({isCorrect})");
                 }
             }
 
             if (cardType == "基本・穴埋め" && string.IsNullOrWhiteSpace(frontText))
             {
                 await DisplayAlert("エラー", "表面を入力してください", "OK");
+                return;
+            }
+
+            if (cardType == "選択肢" && choices.Count == 0)
+            {
+                await DisplayAlert("エラー", "少なくとも1つの選択肢を入力してください", "OK");
                 return;
             }
 
@@ -583,8 +694,22 @@ namespace AnkiPlus_MAUI
                 Debug.WriteLine($"Error updating .ankpls file: {ex.Message}");
             }
 
+            // エディタの内容をリセット
+            FrontTextEditor.Text = "";
+            BackTextEditor.Text = "";
+            ChoiceQuestion.Text = "";
+            ChoiceQuestionExplanation.Text = "";
+            ChoicesContainer.Children.Clear();
+            selectedImagePath = "";
+            selectionRects.Clear();
+            imageBitmap = null;
+            CanvasView.InvalidateSurface();
+
+            // プレビューの更新
+            FrontPreviewWebView.Source = new HtmlWebViewSource { Html = "" };
+            BackPreviewWebView.Source = new HtmlWebViewSource { Html = "" };
+
             await DisplayAlert("成功", "カードを保存しました", "OK");
-            await Navigation.PopAsync();
         }
 
         private void LoadCards()

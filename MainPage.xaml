@@ -3,76 +3,115 @@
              xmlns:behaviors="clr-namespace:AnkiPlus_MAUI.Behaviors"
              xmlns:converters="clr-namespace:AnkiPlus_MAUI.Converters"
              x:Class="AnkiPlus_MAUI.MainPage"
-             
              Title="ノート">
-    
+
     <ContentPage.Resources>
         <converters:InverseBoolConverter x:Key="InverseBoolConverter"/>
     </ContentPage.Resources>
-    
+
     <Grid>
         <StackLayout>
             <!-- タイトルバー -->
             <Grid Padding="10">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <Label Text="ノート" FontSize="24" VerticalOptions="Center" />
-                <Button Text="新規作成" Grid.Column="1" VerticalOptions="Center" Clicked="OnCreateNewNoteClicked"/>
+                <Label Text="ノート"
+                        FontSize="24"
+                        VerticalOptions="Center"/>
+                <Button Text="Ankiモードへ"
+                        Grid.Column="2"
+                        VerticalOptions="Center"
+                        Clicked="OnAnkiModeClicked"
+                        Margin="0,0,10,0"/>
+                <Button Text="新規作成"
+                        Grid.Column="3"
+                        VerticalOptions="Center"
+                        Clicked="OnCreateNewNoteClicked"/>
             </Grid>
 
             <!-- ノートリスト -->
-            <CollectionView x:Name="NotesCollectionView" ItemsSource="{Binding Notes}"
-                           Margin="20,0" HorizontalOptions="Fill">
+            <CollectionView x:Name="NotesCollectionView"
+                    ItemsSource="{Binding Notes}"
+                            Margin="20,0"
+                    HorizontalOptions="Fill">
                 <CollectionView.ItemsLayout>
-                    <GridItemsLayout Orientation="Vertical" x:Name="GridLayout"
-                                    HorizontalItemSpacing="20" VerticalItemSpacing="20"/>
+                    <GridItemsLayout Orientation="Vertical"
+                            x:Name="GridLayout"
+                                     HorizontalItemSpacing="20"
+                            VerticalItemSpacing="20"/>
                 </CollectionView.ItemsLayout>
                 <CollectionView.ItemTemplate>
                     <DataTemplate>
                         <Grid>
-                            <Frame Padding="0" HasShadow="False" CornerRadius="10" 
-                                   WidthRequest="150" HeightRequest="200" 
-                                   IsEnabled="True" BackgroundColor="Transparent"
+                            <Frame Padding="0"
+                                    HasShadow="False"
+                                    CornerRadius="10"
+                                   WidthRequest="150"
+                                    HeightRequest="200"
+                                   IsEnabled="True"
+                                    BackgroundColor="Transparent"
                                    BorderColor="Transparent"
                                    IsVisible="{Binding IsFolder}">
                                 <Frame.GestureRecognizers>
-                                    <TapGestureRecognizer Tapped="OnTapped" CommandParameter="{Binding}"/>
+                                    <TapGestureRecognizer Tapped="OnTapped"
+                                            CommandParameter="{Binding}"/>
                                 </Frame.GestureRecognizers>
                                 <Grid>
-                                    <Image Source="{Binding Icon}" Aspect="AspectFit" 
-                                           HorizontalOptions="Center" VerticalOptions="Center" 
-                                           WidthRequest="150" HeightRequest="200">
+                                    <Image Source="{Binding Icon}"
+                                            Aspect="AspectFit"
+                                           HorizontalOptions="Center"
+                                            VerticalOptions="Center"
+                                           WidthRequest="150"
+                                            HeightRequest="200">
                                         <Image.Behaviors>
-                                            <behaviors:FadeInBehavior />
+                                            <behaviors:FadeInBehavior/>
                                         </Image.Behaviors>
                                     </Image>
-                                    <Label Text="{Binding Name}" FontSize="16" FontAttributes="Bold"
-                                           HorizontalOptions="Center" VerticalOptions="End"
-                                           Margin="10,0,10,30" TextColor="Black" 
+                                    <Label Text="{Binding Name}"
+                                            FontSize="16"
+                                            FontAttributes="Bold"
+                                           HorizontalOptions="Center"
+                                            VerticalOptions="End"
+                                           Margin="10,0,10,30"
+                                            TextColor="Black"
                                            LineBreakMode="NoWrap"/>
                                 </Grid>
                             </Frame>
 
-                            <Frame Padding="0" HasShadow="True" CornerRadius="10" 
-                                   WidthRequest="150" HeightRequest="200" 
-                                   IsEnabled="True" BackgroundColor="White"
+                            <Frame Padding="0"
+                                    HasShadow="True"
+                                    CornerRadius="10"
+                                   WidthRequest="150"
+                                    HeightRequest="200"
+                                   IsEnabled="True"
+                                    BackgroundColor="White"
                                    IsVisible="{Binding IsFolder, Converter={StaticResource InverseBoolConverter}}">
                                 <Frame.GestureRecognizers>
-                                    <TapGestureRecognizer Tapped="OnTapped" CommandParameter="{Binding}"/>
+                                    <TapGestureRecognizer Tapped="OnTapped"
+                                            CommandParameter="{Binding}"/>
                                 </Frame.GestureRecognizers>
                                 <Grid>
-                                    <Image Source="{Binding Icon}" Aspect="AspectFill" 
-                                           HorizontalOptions="Center" VerticalOptions="Center" 
-                                           WidthRequest="150" HeightRequest="200">
+                                    <Image Source="{Binding Icon}"
+                                            Aspect="AspectFill"
+                                           HorizontalOptions="Center"
+                                            VerticalOptions="Center"
+                                           WidthRequest="150"
+                                            HeightRequest="200">
                                         <Image.Behaviors>
-                                            <behaviors:FadeInBehavior />
+                                            <behaviors:FadeInBehavior/>
                                         </Image.Behaviors>
                                     </Image>
-                                    <Label Text="{Binding Name}" FontSize="16" FontAttributes="Bold"
-                                           HorizontalOptions="Center" VerticalOptions="End"
-                                           Margin="10,0,10,30" TextColor="Black" 
+                                    <Label Text="{Binding Name}"
+                                            FontSize="16"
+                                            FontAttributes="Bold"
+                                           HorizontalOptions="Center"
+                                            VerticalOptions="End"
+                                           Margin="10,0,10,30"
+                                            TextColor="Black"
                                            LineBreakMode="NoWrap"/>
                                 </Grid>
                             </Frame>

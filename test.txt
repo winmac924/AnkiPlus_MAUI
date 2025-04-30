@@ -1,0 +1,9 @@
+#separator:tab
+#html:true
+#notetype column:1
+#tags column:12
+MCQ Ultimate V2.1	CPU	Intel	NVIDIA	AMD						A C		
+基本	a	b										
+基本	ab	cd										
+穴埋め問題	a{{c1::b}}c	aa										
+画像穴埋め問題	{{c1::image-occlusion:rect:left=.102:top=.845:width=.1863:height=.1064:oi=1}}<br>	"<img src=""Screenshot 2025-04-30 080617.png"">"										

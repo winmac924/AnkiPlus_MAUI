@@ -5,6 +5,8 @@ using System.Threading.Tasks;
 using System.Linq;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO.Compression;
+using System.IO;
 
 namespace AnkiPlus_MAUI
 {
@@ -182,6 +184,112 @@ namespace AnkiPlus_MAUI
             var newFolderPath = Path.Combine(currentFolder, folderName);
             Directory.CreateDirectory(newFolderPath);
             Notes.Insert(0, new Note { Name = folderName, Icon = "folder.png", IsFolder = true, FullPath = newFolderPath });
+        }
+
+        private void CollectCardsFromFolder(string folderPath, List<string> cards)
+        {
+            Debug.WriteLine($"Searching in folder: {folderPath}");
+
+            // .ankplsファイルを探す
+            var ankplsFiles = Directory.GetFiles(folderPath, "*.ankpls");
+            Debug.WriteLine($"Found {ankplsFiles.Length} .ankpls files");
+
+            foreach (var ankplsFile in ankplsFiles)
+            {
+                Debug.WriteLine($"Processing .ankpls file: {ankplsFile}");
+                try
+                {
+                    using (var archive = ZipFile.OpenRead(ankplsFile))
+                    {
+                        // アーカイブ内のファイル一覧を表示
+                        Debug.WriteLine($"Files in {ankplsFile}:");
+                        foreach (var entry in archive.Entries)
+                        {
+                            Debug.WriteLine($"  - {entry.FullName}");
+                        }
+
+                        // cards.txtを探す
+                        var cardsEntry = archive.Entries.FirstOrDefault(e => e.Name == "cards.txt");
+                        if (cardsEntry != null)
+                        {
+                            using (var stream = cardsEntry.Open())
+                            using (var reader = new StreamReader(stream))
+                            {
+                                var content = reader.ReadToEnd();
+                                Debug.WriteLine($"Found cards.txt with {content.Length} characters in {ankplsFile}");
+                                cards.Add(content);
+                            }
+                        }
+                        else
+                        {
+                            Debug.WriteLine($"No cards.txt found in {ankplsFile}");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"Error processing {ankplsFile}: {ex.Message}");
+                    // 破損したファイルの場合は、一時フォルダから読み込みを試みる
+                    try
+                    {
+                        var tempFolder = Path.Combine(
+                            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                            "Temp",
+                            "AnkiPlus",
+                            Path.GetFileNameWithoutExtension(ankplsFile) + "_temp");
+
+                        Debug.WriteLine($"Checking temp folder: {tempFolder}");
+                        if (Directory.Exists(tempFolder))
+                        {
+                            var files = Directory.GetFiles(tempFolder);
+                            Debug.WriteLine($"Files in temp folder:");
+                            foreach (var file in files)
+                            {
+                                Debug.WriteLine($"  - {Path.GetFileName(file)}");
+                            }
+
+                            var tempCardsFile = Path.Combine(tempFolder, "cards.txt");
+                            if (File.Exists(tempCardsFile))
+                            {
+                                var content = File.ReadAllText(tempCardsFile);
+                                Debug.WriteLine($"Found cards.txt in temp folder with {content.Length} characters");
+                                cards.Add(content);
+                            }
+                        }
+                    }
+                    catch (Exception tempEx)
+                    {
+                        Debug.WriteLine($"Error processing temp folder: {tempEx.Message}");
+                    }
+                }
+            }
+
+            // サブフォルダを再帰的に探索
+            foreach (var dir in Directory.GetDirectories(folderPath))
+            {
+                Debug.WriteLine($"Recursively searching in: {dir}");
+                CollectCardsFromFolder(dir, cards);
+            }
+        }
+
+        private async void OnAnkiModeClicked(object sender, EventArgs e)
+        {
+            var currentFolder = _currentPath.Peek();
+            Debug.WriteLine($"Starting card collection from: {currentFolder}");
+            var allCards = new List<string>();
+
+            // 現在のフォルダ内のすべてのcards.txtを収集
+            CollectCardsFromFolder(currentFolder, allCards);
+            Debug.WriteLine($"Total cards collected: {allCards.Count}");
+
+            if (allCards.Count == 0)
+            {
+                await DisplayAlert("確認", "カードが見つかりませんでした。", "OK");
+                return;
+            }
+
+            // Qaページに遷移し、カードを渡す
+            await Navigation.PushAsync(new Qa(allCards));
         }
 
         protected override void OnSizeAllocated(double width, double height)
