@@ -4,13 +4,14 @@
              xmlns:skia="clr-namespace:SkiaSharp.Views.Maui.Controls;assembly=SkiaSharp.Views.Maui.Controls"
              Title="カードの追加">
 
-        <VerticalStackLayout Padding="20"
-                             Spacing="20">
+        <VerticalStackLayout Padding="10"
+                             Spacing="10">
 
                 <!-- カードタイプ選択（ドロップダウン） -->
                 <Picker x:Name="CardTypePicker"
                         Title="カードタイプを選択"
-                        SelectedIndexChanged="OnCardTypeChanged">
+                        SelectedIndexChanged="OnCardTypeChanged"
+                        HorizontalOptions="Fill">
                         <Picker.ItemsSource>
                                 <x:Array Type="{x:Type x:String}">
                                         <x:String>基本・穴埋め</x:String>
@@ -24,43 +25,45 @@
                 <VerticalStackLayout x:Name="BasicCardLayout">
                         <HorizontalStackLayout>
                                 <Label Text="表面"
-                                       FontSize="18"/>
+                                       FontSize="16"/>
                                 <!-- 画像挿入ボタン -->
                                 <Button Text="画像を追加"
-                                        Clicked="FrontOnAddImageClicked"/>
+                                        Clicked="FrontOnAddImageClicked"
+                                        HorizontalOptions="End"/>
                         </HorizontalStackLayout>
                         <Editor x:Name="FrontTextEditor"
-                                HeightRequest="100"
+                                HeightRequest="80"
                                 Placeholder="表面の内容を入力"
                                 TextChanged="FrontOnTextChanged"/>
                         <Label Text="プレビュー"
-                               FontSize="18"/>
+                               FontSize="16"/>
                         <WebView x:Name="FrontPreviewWebView"
-                                 HeightRequest="100"/>
+                                 HeightRequest="80"/>
                         <HorizontalStackLayout>
                                 <Label Text="裏面"
-                                       FontSize="18"/>
+                                       FontSize="16"/>
                                 <!-- 画像挿入ボタン -->
                                 <Button Text="画像を追加"
-                                        Clicked="BackOnAddImageClicked"/>
+                                        Clicked="BackOnAddImageClicked"
+                                        HorizontalOptions="End"/>
                         </HorizontalStackLayout>
                         <Editor x:Name="BackTextEditor"
-                                HeightRequest="100"
+                                HeightRequest="80"
                                 Placeholder="Markdown 記法で装飾できます"
                                 TextChanged="BackOnTextChanged"/>
                         <Label Text="プレビュー"
-                               FontSize="18"/>
+                               FontSize="16"/>
                         <WebView x:Name="BackPreviewWebView"
-                                 HeightRequest="100"/>
+                                 HeightRequest="80"/>
                 </VerticalStackLayout>
 
                 <!-- 選択肢カード入力 -->
                 <StackLayout x:Name="MultipleChoiceLayout"
                              IsVisible="False">
                         <Label Text="選択肢問題"
-                               FontSize="18"/>
+                               FontSize="16"/>
                         <Editor x:Name="ChoiceQuestion"
-                                HeightRequest="100"
+                                HeightRequest="80"
                                 Placeholder="問題の内容を入力"/>
                         <HorizontalStackLayout>
                                 <Button Text="選択肢を追加"
@@ -74,9 +77,9 @@
                         </HorizontalStackLayout>
                         <StackLayout x:Name="ChoicesContainer"/>
                         <Label Text="解説"
-                               FontSize="18"/>
+                               FontSize="16"/>
                         <Editor x:Name="ChoiceQuestionExplanation"
-                                HeightRequest="100"
+                                HeightRequest="80"
                                 Placeholder="解説の内容を入力"/>
                 </StackLayout>
 
@@ -84,11 +87,12 @@
                 <StackLayout x:Name="ImageFillLayout"
                              IsVisible="False">
                         <Label Text="画像穴埋め"
-                               FontSize="18"/>
+                               FontSize="16"/>
                         <Button Text="画像を選択"
-                                Clicked="OnSelectImage"/>
+                                Clicked="OnSelectImage"
+                                HorizontalOptions="Fill"/>
                         <skia:SKCanvasView x:Name="CanvasView"
-                                           WidthRequest="500"
+                                           WidthRequest="{Binding Source={x:Reference Content}, Path=Width}"
                                            HeightRequest="300"
                                            IsEnabled="True"
                                            PaintSurface="OnCanvasViewPaintSurface"
@@ -99,8 +103,8 @@
                 <!-- カードを保存 -->
                 <Button Text="カードを保存"
                         Clicked="OnSaveCardClicked"
-                        HorizontalOptions="End"
-                        VerticalOptions="End"/>
+                        HorizontalOptions="Fill"
+                        Margin="20,10"/>
 
         </VerticalStackLayout>
 </ContentPage>

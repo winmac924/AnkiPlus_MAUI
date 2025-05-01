@@ -21,7 +21,6 @@ namespace AnkiPlus_MAUI
             string relativePath = Path.GetRelativePath(Path.Combine(documentsPath, "AnkiPlus"), Path.GetDirectoryName(ankplsFilePath));
             tempExtractPath = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "Temp",
                 "AnkiPlus",
                 relativePath,
                 $"{Path.GetFileNameWithoutExtension(ankplsFilePath)}_temp" // Fix: Use Path.GetFileNameWithoutExtension to extract the file name without extension  

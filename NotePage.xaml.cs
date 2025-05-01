@@ -34,7 +34,6 @@ namespace AnkiPlus_MAUI
             string relativePath = Path.GetRelativePath(Path.Combine(documentsPath, "AnkiPlus"), Path.GetDirectoryName(ankplsFilePath));
             tempExtractPath = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "Temp",
                 "AnkiPlus",
                 relativePath,
                 $"{_noteName}_temp"

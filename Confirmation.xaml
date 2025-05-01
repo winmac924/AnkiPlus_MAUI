@@ -3,26 +3,41 @@
              x:Class="AnkiPlus_MAUI.Confirmation"
              Title="確認画面">
 
-    <VerticalStackLayout Padding="20" Spacing="20">
-        <!-- ノート名 -->
-        <Label x:Name="NoteTitleLabel" Text="ノート名" FontSize="24" FontAttributes="Bold"
-               HorizontalOptions="Center"/>
+       <VerticalStackLayout Padding="10"
+                            Spacing="10">
+              <!-- ノート名 -->
+              <Label x:Name="NoteTitleLabel"
+                     Text="ノート名"
+                     FontSize="20"
+                     FontAttributes="Bold"
+                     HorizontalOptions="Center"/>
 
-        <!-- 問題数の表示 -->
-        <Label x:Name="TotalQuestionsLabel" Text="カード枚数: 0"
-               FontSize="18" HorizontalOptions="Center"/>
+              <!-- 問題数の表示 -->
+              <Label x:Name="TotalQuestionsLabel"
+                     Text="カード枚数: 0"
+                     FontSize="16"
+                     HorizontalOptions="Center"/>
 
-        <!-- 復習する問題数の入力 -->
+              <!-- 復習する問題数の入力 -->
 
 
-        <!-- 学習開始ボタン -->
-        <Button Text="学習を開始" Clicked="OnStartLearningClicked" HorizontalOptions="Center"/>
-        
-        <!-- カードの追加ボタン -->
-        <Button Text="カードの追加" Clicked="AddCardClicked" HorizontalOptions="Center"/>
-        
-        <!-- NotePage遷移ボタン -->
-        <Button Text="ノートモードへ" Clicked="ToNoteClicked" HorizontalOptions="Center"/>
-       
-    </VerticalStackLayout>
+              <!-- 学習開始ボタン -->
+              <Button Text="学習を開始"
+                      Clicked="OnStartLearningClicked"
+                      HorizontalOptions="Fill"
+                      Margin="20,10"/>
+
+              <!-- カードの追加ボタン -->
+              <Button Text="カードの追加"
+                      Clicked="AddCardClicked"
+                      HorizontalOptions="Fill"
+                      Margin="20,10"/>
+
+              <!-- NotePage遷移ボタン -->
+              <Button Text="ノートモードへ"
+                      Clicked="ToNoteClicked"
+                      HorizontalOptions="Fill"
+                      Margin="20,10"/>
+
+       </VerticalStackLayout>
 </ContentPage>
