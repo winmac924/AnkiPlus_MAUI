@@ -34,7 +34,8 @@
                       Margin="20,10"/>
 
               <!-- NotePage遷移ボタン -->
-              <Button Text="ノートモードへ"
+              <Button x:Name="ToNoteButton"
+                      Text="ノートモードへ"
                       Clicked="ToNoteClicked"
                       HorizontalOptions="Fill"
                       Margin="20,10"/>

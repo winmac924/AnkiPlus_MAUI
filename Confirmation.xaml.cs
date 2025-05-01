@@ -1,6 +1,7 @@
 using Microsoft.Maui.Controls;
 using System.Diagnostics;
 using System.IO.Compression;
+using Microsoft.Maui.Devices;
 
 namespace AnkiPlus_MAUI
 {
@@ -30,6 +31,12 @@ namespace AnkiPlus_MAUI
             if (!Directory.Exists(tempExtractPath))
             {
                 Directory.CreateDirectory(tempExtractPath);
+            }
+
+            // モバイルデバイスの場合は「ノートモードへ」ボタンを非表示
+            if (DeviceInfo.Platform == DevicePlatform.Android || DeviceInfo.Platform == DevicePlatform.iOS)
+            {
+                ToNoteButton.IsVisible = false;
             }
 
             LoadNote();

@@ -28,17 +28,9 @@ namespace AnkiPlus_MAUI
 
         private class CardResult
         {
-            public int CorrectCount { get; set; }
-            public int IncorrectCount { get; set; }
-            public List<LearningRecord> LearningHistory { get; set; } = new List<LearningRecord>();
+            public bool WasCorrect { get; set; }  // 直前の正誤のみを保持
             public DateTime? NextReviewTime { get; set; }
-        }
-
-        private class LearningRecord
-        {
-            public DateTime Timestamp { get; set; }
-            public bool WasCorrect { get; set; }
-            public int Interval { get; set; }  // 次の表示までの間隔（分）
+            public int OriginalQuestionNumber { get; set; }  // 元の問題番号を保持
         }
 
         public Qa(string cardsPath, string tempPath)
@@ -108,17 +100,20 @@ namespace AnkiPlus_MAUI
                 Debug.WriteLine($"File content length: {content.Length}");
                 var lines = content.Split(new[] { '\r', '\n' }, StringSplitOptions.None);
                 Debug.WriteLine($"Total lines in file: {lines.Length}");
+
+                // メタデータ行をスキップ
+                var cardLines = lines.Skip(1).ToArray();
                 var card = new List<string>();
 
-                foreach (var line in lines)
+                foreach (var line in cardLines)
                 {
                     if (line.Trim() == "---")
                     {
-                        if (card.Count > 0)
+                        if (card.Count > 1)  // カードタイプと少なくとも1行の内容がある場合
                         {
                             // 空行を除去してカードを追加
                             var trimmedCard = card.Where(l => !string.IsNullOrWhiteSpace(l)).ToList();
-                            if (trimmedCard.Count > 0)
+                            if (trimmedCard.Count > 1)  // カードタイプと少なくとも1行の内容がある場合
                             {
                                 cards.Add(string.Join("\n", trimmedCard));
                                 Debug.WriteLine($"Added card with {trimmedCard.Count} lines");
@@ -133,11 +128,11 @@ namespace AnkiPlus_MAUI
                 }
 
                 // 最後のカードを追加
-                if (card.Count > 0)
+                if (card.Count > 1)  // カードタイプと少なくとも1行の内容がある場合
                 {
                     // 空行を除去してカードを追加
                     var trimmedCard = card.Where(l => !string.IsNullOrWhiteSpace(l)).ToList();
-                    if (trimmedCard.Count > 0)
+                    if (trimmedCard.Count > 1)  // カードタイプと少なくとも1行の内容がある場合
                     {
                         cards.Add(string.Join("\n", trimmedCard));
                         Debug.WriteLine($"Added final card with {trimmedCard.Count} lines");
@@ -146,38 +141,158 @@ namespace AnkiPlus_MAUI
 
                 Debug.WriteLine($"Total cards loaded: {cards.Count}");
 
-                // 結果ファイルが存在する場合、未解答の問題から始める
+                // 結果ファイルが存在する場合、問題の出題順序を決定
                 string resultsFilePath = Path.Combine(tempExtractPath, "results.txt");
                 if (File.Exists(resultsFilePath))
                 {
                     var resultLines = File.ReadAllLines(resultsFilePath);
                     var answeredQuestions = new HashSet<int>();
+                    var incorrectQuestions = new List<int>();
+                    var allCorrect = true;
 
                     foreach (var line in resultLines)
                     {
-                        var parts = line.Split(':');
-                        if (parts.Length >= 3)
+                        var parts = line.Split('|');
+                        if (parts.Length >= 2)  // 基本情報を含む行を確認
                         {
                             if (int.TryParse(parts[0].Trim(), out int questionNumber))
                             {
-                                answeredQuestions.Add(questionNumber);
+                                // 問題番号を0ベースのインデックスに変換
+                                int questionIndex = questionNumber - 1;
+
+                                // 現在表示されている問題の結果のみを処理
+                                if (questionIndex == currentIndex)
+                                {
+                                    answeredQuestions.Add(questionIndex);
+
+                                    // 基本情報から正誤を取得
+                                    var basicInfo = parts[1].Trim();
+                                    bool wasCorrect = basicInfo.Contains("正解");
+
+                                    // 結果オブジェクトを作成または更新
+                                    if (!results.ContainsKey(questionNumber))
+                                    {
+                                        results[questionNumber] = new CardResult { OriginalQuestionNumber = questionNumber };
+                                    }
+                                    results[questionNumber].WasCorrect = wasCorrect;
+                                    Debug.WriteLine($"問題 {questionNumber} の結果を更新: {(wasCorrect ? "正解" : "不正解")}");
+
+                                    // 不正解の問題をリストに追加
+                                    if (!wasCorrect)
+                                    {
+                                        incorrectQuestions.Add(questionIndex);
+                                        allCorrect = false;
+                                        Debug.WriteLine($"不正解の問題を追加: {questionNumber}");
+                                    }
+                                }
                             }
                         }
                     }
 
-                    // 未解答の問題を探す
+                    // 未回答の問題を探す
+                    var unansweredQuestions = new List<int>();
                     for (int i = 0; i < cards.Count; i++)
                     {
-                        if (!answeredQuestions.Contains(i + 1))
+                        if (!answeredQuestions.Contains(i))
                         {
-                            currentIndex = i;
-                            break;
+                            unansweredQuestions.Add(i);
                         }
+                    }
+
+                    // 出題順序の決定
+                    if (unansweredQuestions.Any())
+                    {
+                        // 未回答の問題がある場合、それらを先に出題
+                        var random = new Random();
+                        currentIndex = unansweredQuestions[random.Next(unansweredQuestions.Count)];
+                        Debug.WriteLine($"未回答の問題を出題: {currentIndex + 1}");
+                    }
+                    else if (incorrectQuestions.Any())
+                    {
+                        // 不正解の問題がある場合、それらを出題
+                        var random = new Random();
+                        var originalCards = cards.ToList();  // 元のカードリストを保持
+                        var newCards = new List<string>();
+
+                        // 不正解の問題をシャッフルして追加
+                        var shuffledIncorrect = incorrectQuestions.OrderBy(x => random.Next()).ToList();
+                        foreach (var index in shuffledIncorrect)
+                        {
+                            if (index < originalCards.Count)
+                            {
+                                newCards.Add(originalCards[index]);
+                                Debug.WriteLine($"不正解の問題を追加: {index + 1}");
+                            }
+                        }
+
+                        // 正解の問題をシャッフルして追加
+                        var correctQuestions = Enumerable.Range(0, originalCards.Count)
+                            .Where(i => !incorrectQuestions.Contains(i))
+                            .OrderBy(x => random.Next())
+                            .ToList();
+
+                        foreach (var index in correctQuestions)
+                        {
+                            if (index < originalCards.Count)
+                            {
+                                newCards.Add(originalCards[index]);
+                                Debug.WriteLine($"正解の問題を追加: {index + 1}");
+                            }
+                        }
+
+                        cards = newCards;
+                        currentIndex = 0;  // シャッフル後の最初の問題から開始
+                        Debug.WriteLine($"シャッフル後の問題数: {cards.Count} (不正解: {shuffledIncorrect.Count}, 正解: {correctQuestions.Count})");
+                    }
+                    else if (allCorrect)
+                    {
+                        // すべて正解の場合、全問題をシャッフル
+                        var random = new Random();
+                        var newCards = new List<string>();
+                        var indices = Enumerable.Range(0, cards.Count).ToList();
+                        
+                        // Fisher-Yatesシャッフル
+                        for (int i = indices.Count - 1; i > 0; i--)
+                        {
+                            int j = random.Next(i + 1);
+                            int temp = indices[i];
+                            indices[i] = indices[j];
+                            indices[j] = temp;
+                        }
+
+                        // シャッフルされた順序でカードを追加
+                        foreach (var index in indices)
+                        {
+                            // カードの先頭に問題番号を追加
+                            var cardContent = cards[index];
+                            var contentLines = cardContent.Split('\n').ToList();
+                            contentLines.Insert(0, $"問題番号: {index + 1}");
+                            newCards.Add(string.Join("\n", contentLines));
+                            Debug.WriteLine($"シャッフル後の問題 {index + 1} を追加");
+                        }
+
+                        // 新しいカードリストを設定
+                        cards = newCards;
+                        currentIndex = 0;  // 最初の問題から開始
+                        Debug.WriteLine($"全問題をシャッフルして出題（問題数: {cards.Count}）");
+                    }
+                    else
+                    {
+                        // デフォルトは最初の問題から
+                        currentIndex = 0;
+                        Debug.WriteLine("デフォルトで最初の問題を出題");
+                    }
+
+                    // 現在のインデックスが有効範囲内か確認
+                    if (currentIndex < 0 || currentIndex >= cards.Count)
+                    {
+                        currentIndex = 0;
+                        Debug.WriteLine("インデックスが範囲外のため、最初の問題を出題");
                     }
                 }
             }
         }
-        // 結果ファイルを読み込む（フォーマット対応）
+        // 結果ファイルを読み込む
         private void LoadResultsFromFile()
         {
             try
@@ -187,7 +302,7 @@ namespace AnkiPlus_MAUI
                 if (File.Exists(resultsFilePath))
                 {
                     var lines = File.ReadAllLines(resultsFilePath);
-                    results.Clear();
+                    // results.Clear();  // 既存の結果をクリアしない
 
                     foreach (var line in lines)
                     {
@@ -196,51 +311,30 @@ namespace AnkiPlus_MAUI
                         {
                             if (int.TryParse(parts[0].Trim(), out int questionNumber))
                             {
-                                var cardResult = new CardResult();
+                                // 問題番号を0ベースのインデックスに変換
+                                int questionIndex = questionNumber - 1;
 
-                                // 基本情報の解析
-                                var basicInfo = parts[1].Split(',');
-                                foreach (var info in basicInfo)
+                                // 表示されている問題のみ結果を読み込む
+                                if (questionIndex < cards.Count)
                                 {
-                                    if (info.Contains("正解:"))
+                                    // 既存の結果を保持
+                                    if (!results.ContainsKey(questionNumber))
                                     {
-                                        cardResult.CorrectCount = int.Parse(Regex.Match(info, @"正解:\s*(\d+)回").Groups[1].Value);
+                                        results[questionNumber] = new CardResult { OriginalQuestionNumber = questionNumber };
                                     }
-                                    else if (info.Contains("不正解:"))
+
+                                    // 基本情報の解析
+                                    var basicInfo = parts[1].Trim();
+                                    results[questionNumber].WasCorrect = basicInfo.Contains("正解");
+
+                                    // 次回表示時間の解析
+                                    if (parts.Length > 2 && DateTime.TryParse(parts[2], out DateTime nextReview))
                                     {
-                                        cardResult.IncorrectCount = int.Parse(Regex.Match(info, @"不正解:\s*(\d+)回").Groups[1].Value);
+                                        results[questionNumber].NextReviewTime = nextReview;
                                     }
+
+                                    Debug.WriteLine($"問題 {questionNumber} の結果を読み込み: {(results[questionNumber].WasCorrect ? "正解" : "不正解")}");
                                 }
-
-                                // 学習履歴の解析
-                                if (parts.Length > 2)
-                                {
-                                    var historyParts = parts[2].Split(';');
-                                    foreach (var history in historyParts)
-                                    {
-                                        if (string.IsNullOrWhiteSpace(history)) continue;
-
-                                        var recordParts = history.Split(',');
-                                        if (recordParts.Length >= 3)
-                                        {
-                                            var record = new LearningRecord
-                                            {
-                                                Timestamp = DateTime.Parse(recordParts[0]),
-                                                WasCorrect = bool.Parse(recordParts[1]),
-                                                Interval = int.Parse(recordParts[2])
-                                            };
-                                            cardResult.LearningHistory.Add(record);
-                                        }
-                                    }
-                                }
-
-                                // 次回表示時間の解析
-                                if (parts.Length > 3 && DateTime.TryParse(parts[3], out DateTime nextReview))
-                                {
-                                    cardResult.NextReviewTime = nextReview;
-                                }
-
-                                results[questionNumber] = cardResult;
                             }
                         }
                     }
@@ -264,21 +358,12 @@ namespace AnkiPlus_MAUI
 
                 if (currentIndex >= cards.Count)
                 {
-                    Debug.WriteLine("Reached end of cards");
+                    Debug.WriteLine("すべての問題が出題されました");
+                    // 完了メッセージを表示
+                    DisplayAlert("完了", "すべての問題が出題されました。", "OK");
+                    // 前のページに戻る
+                    Navigation.PopAsync();
                     return;
-                }
-
-                // 現在のカードの結果を確認
-                if (results.ContainsKey(currentIndex + 1))
-                {
-                    var result = results[currentIndex + 1];
-                    if (result.NextReviewTime.HasValue && result.NextReviewTime.Value > DateTime.Now)
-                    {
-                        // まだ表示時間が来ていない場合、次のカードへ
-                        currentIndex++;
-                        DisplayCard();
-                        return;
-                    }
                 }
 
                 var card = cards[currentIndex];
@@ -296,6 +381,18 @@ namespace AnkiPlus_MAUI
                     DisplayCard();
                     return;
                 }
+
+                // 問題番号を取得
+                int questionNumber = 0;
+                if (lines[0].StartsWith("問題番号:"))
+                {
+                    if (int.TryParse(lines[0].Split(':')[1].Trim(), out int number))
+                    {
+                        questionNumber = number;
+                    }
+                    lines.RemoveAt(0);  // 問題番号行を削除
+                }
+                Debug.WriteLine($"現在の問題番号: {questionNumber}/{cards.Count}");
 
                 // レイアウトの初期化
                 BasicCardLayout.IsVisible = false;
@@ -377,6 +474,22 @@ namespace AnkiPlus_MAUI
             // 複数行対応でパース
             var (frontText, backText) = ParseBasicCard(lines);
             this.frontText = frontText; // クラス変数に保存
+
+            // 画像タグの処理
+            var matches = Regex.Matches(frontText, @"<<img(\d+)>>");
+            foreach (Match match in matches)
+            {
+                int imgNum = int.Parse(match.Groups[1].Value);
+                string imgPath = Path.Combine(tempExtractPath, "img", $"img{imgNum}.png");
+                if (File.Exists(imgPath))
+                {
+                    string base64Image = ConvertImageToBase64(imgPath);
+                    if (base64Image != null)
+                    {
+                        frontText = frontText.Replace(match.Value, $"<img src={base64Image} style=max-height:150px; />");
+                    }
+                }
+            }
 
             // 表面と裏面のプレビュー表示
             FrontPreviewWebView.Source = new HtmlWebViewSource
@@ -690,26 +803,10 @@ namespace AnkiPlus_MAUI
                 }
 
                 var result = results[currentIndex + 1];
-                if (isCorrect)
-                {
-                    result.CorrectCount++;
-                }
-                else
-                {
-                    result.IncorrectCount++;
-                }
-
-                // 学習履歴を追加
-                int nextInterval = CalculateNextInterval(result, isCorrect);
-                result.LearningHistory.Add(new LearningRecord
-                {
-                    Timestamp = DateTime.Now,
-                    WasCorrect = isCorrect,
-                    Interval = nextInterval
-                });
+                result.WasCorrect = isCorrect;
 
                 // 次回表示時間を設定
-                result.NextReviewTime = DateTime.Now.AddMinutes(nextInterval);
+                result.NextReviewTime = DateTime.Now.AddMinutes(isCorrect ? 10 : 1);  // 正解なら10分、不正解なら1分後に再表示
 
                 SaveResultsToFile();
 
@@ -728,15 +825,30 @@ namespace AnkiPlus_MAUI
                 Incorrect.IsVisible = true;
                 AnswerLine.IsVisible = true;
                 ShowAnswerButton.IsVisible = false;
+
+                // 画像穴埋め問題の結果を保存
+                if (!results.ContainsKey(currentIndex + 1))
+                {
+                    results[currentIndex + 1] = new CardResult();
+                }
             }
         }
 
         private void OnNextClicked(object sender, EventArgs e)
         {
-            currentIndex++;
-            ShowAnswerButton.IsVisible = true;
-            NextButton.IsVisible = false;
-            DisplayCard();
+            try
+            {
+                currentIndex++;
+                ShowAnswerButton.IsVisible = true;
+                NextButton.IsVisible = false;
+                Debug.WriteLine($"次の問題へ移動: {currentIndex + 1}/{cards.Count}");
+                DisplayCard();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error in OnNextClicked: {ex}");
+                DisplayAlert("Error", "Failed to move to next card", "OK");
+            }
         }
 
         // 正解ボタン
@@ -744,27 +856,39 @@ namespace AnkiPlus_MAUI
         {
             try
             {
-                if (!results.ContainsKey(currentIndex + 1))
+                // 現在のカードから問題番号を取得
+                var card = cards[currentIndex];
+                var lines = card.Split('\n')
+                               .Select(line => line.Trim())
+                               .Where(line => !string.IsNullOrWhiteSpace(line))
+                               .ToList();
+
+                int questionNumber = 0;
+                if (lines[0].StartsWith("問題番号:"))
                 {
-                    results[currentIndex + 1] = new CardResult();
+                    if (int.TryParse(lines[0].Split(':')[1].Trim(), out int number))
+                    {
+                        questionNumber = number;
+                    }
                 }
 
-                var result = results[currentIndex + 1];
-                result.CorrectCount++;
-
-                // 学習履歴を追加
-                int nextInterval = CalculateNextInterval(result, true);
-                result.LearningHistory.Add(new LearningRecord
+                if (questionNumber > 0)
                 {
-                    Timestamp = DateTime.Now,
-                    WasCorrect = true,
-                    Interval = nextInterval
-                });
+                    if (!results.ContainsKey(questionNumber))
+                    {
+                        results[questionNumber] = new CardResult { OriginalQuestionNumber = questionNumber };
+                    }
 
-                // 次回表示時間を設定
-                result.NextReviewTime = DateTime.Now.AddMinutes(nextInterval);
+                    var result = results[questionNumber];
+                    result.WasCorrect = true;  // 正解として記録
+                    result.OriginalQuestionNumber = questionNumber;  // 元の問題番号を保持
 
-                SaveResultsToFile();
+                    // 次回表示時間を設定
+                    result.NextReviewTime = DateTime.Now.AddMinutes(10);  // 10分後に再表示
+
+                    SaveResultsToFile();
+                }
+
                 currentIndex++;
                 Correct.IsVisible = false;
                 Incorrect.IsVisible = false;
@@ -784,27 +908,39 @@ namespace AnkiPlus_MAUI
         {
             try
             {
-                if (!results.ContainsKey(currentIndex + 1))
+                // 現在のカードから問題番号を取得
+                var card = cards[currentIndex];
+                var lines = card.Split('\n')
+                               .Select(line => line.Trim())
+                               .Where(line => !string.IsNullOrWhiteSpace(line))
+                               .ToList();
+
+                int questionNumber = 0;
+                if (lines[0].StartsWith("問題番号:"))
                 {
-                    results[currentIndex + 1] = new CardResult();
+                    if (int.TryParse(lines[0].Split(':')[1].Trim(), out int number))
+                    {
+                        questionNumber = number;
+                    }
                 }
 
-                var result = results[currentIndex + 1];
-                result.IncorrectCount++;
-
-                // 学習履歴を追加
-                int nextInterval = CalculateNextInterval(result, false);
-                result.LearningHistory.Add(new LearningRecord
+                if (questionNumber > 0)
                 {
-                    Timestamp = DateTime.Now,
-                    WasCorrect = false,
-                    Interval = nextInterval
-                });
+                    if (!results.ContainsKey(questionNumber))
+                    {
+                        results[questionNumber] = new CardResult { OriginalQuestionNumber = questionNumber };
+                    }
 
-                // 次回表示時間を設定
-                result.NextReviewTime = DateTime.Now.AddMinutes(nextInterval);
+                    var result = results[questionNumber];
+                    result.WasCorrect = false;  // 不正解として記録
+                    result.OriginalQuestionNumber = questionNumber;  // 元の問題番号を保持
 
-                SaveResultsToFile();
+                    // 次回表示時間を設定
+                    result.NextReviewTime = DateTime.Now.AddMinutes(1);  // 1分後に再表示
+
+                    SaveResultsToFile();
+                }
+
                 currentIndex++;
                 Correct.IsVisible = false;
                 Incorrect.IsVisible = false;
@@ -944,21 +1080,25 @@ namespace AnkiPlus_MAUI
 
                 foreach (var entry in results)
                 {
-                    int questionNumber = entry.Key;
+                    int questionNumber = entry.Key;  // 元の問題番号
                     var result = entry.Value;
 
-                    // 基本情報
-                    var basicInfo = $"正解: {result.CorrectCount}回, 不正解: {result.IncorrectCount}回";
-
-                    // 学習履歴
-                    var historyString = string.Join(";", result.LearningHistory.Select(h =>
-                        $"{h.Timestamp:yyyy-MM-dd HH:mm:ss},{h.WasCorrect},{h.Interval}"));
+                    // 基本情報（直前の正誤のみ）
+                    var basicInfo = $"正誤: {(result.WasCorrect ? "正解" : "不正解")}";
 
                     // 次回表示時間
                     var nextReviewString = result.NextReviewTime?.ToString("yyyy-MM-dd HH:mm:ss") ?? "";
 
-                    resultLines.Add($"{questionNumber} | {basicInfo} | {historyString} | {nextReviewString}");
+                    resultLines.Add($"{questionNumber} | {basicInfo} | {nextReviewString}");
                 }
+
+                // 問題番号でソート
+                resultLines.Sort((a, b) =>
+                {
+                    int numA = int.Parse(a.Split('|')[0].Trim());
+                    int numB = int.Parse(b.Split('|')[0].Trim());
+                    return numA.CompareTo(numB);
+                });
 
                 File.WriteAllLines(resultsFilePath, resultLines);
                 Debug.WriteLine($"結果を保存しました: {resultsFilePath}");
@@ -969,37 +1109,6 @@ namespace AnkiPlus_MAUI
             }
         }
 
-        // 次回の表示間隔を計算（FSRSベース）
-        private int CalculateNextInterval(CardResult result, bool wasCorrect)
-        {
-            if (result.LearningHistory.Count == 0)
-            {
-                // 初回学習
-                return wasCorrect ? 10 : 1; // 正解なら10分、不正解なら1分
-            }
-
-            var lastRecord = result.LearningHistory.Last();
-            int baseInterval = lastRecord.Interval;
-
-            if (wasCorrect)
-            {
-                if (lastRecord.WasCorrect)
-                {
-                    // 連続正解の場合、間隔を2.5倍
-                    return (int)(baseInterval * 2.5);
-                }
-                else
-                {
-                    // 前回不正解で今回正解の場合、間隔を1.5倍
-                    return (int)(baseInterval * 1.5);
-                }
-            }
-            else
-            {
-                // 不正解の場合、間隔を0.5倍（最小1分）
-                return Math.Max(1, (int)(baseInterval * 0.5));
-            }
-        }
-
     }
 }
+

@@ -112,7 +112,7 @@ namespace AnkiPlus_MAUI
             var editor = new Editor
             {
                 Placeholder = "選択肢を入力（改行で区切って複数入力可能）",
-                HeightRequest = 100,
+                HeightRequest = 20,
                 AutoSize = EditorAutoSizeOption.TextChanges
             };
             editor.TextChanged += OnChoiceTextChanged;
