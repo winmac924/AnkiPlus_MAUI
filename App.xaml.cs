@@ -26,9 +26,6 @@ namespace AnkiPlus_MAUI
             InitializeFirebase();
             InitializeAzureBlobStorage();
             InitializeMainPage();
-            
-            // アップデートチェックを起動時に実行
-            _ = CheckForUpdatesAsync();
         }
 
         private void InitializeFirebase()
@@ -66,16 +63,12 @@ namespace AnkiPlus_MAUI
             _ = CheckSavedLoginAsync();
         }
 
-        private async Task CheckForUpdatesAsync()
+        public static async Task CheckForUpdatesAsync()
         {
             try
             {
-                // DIコンテナからUpdateNotificationServiceを取得
-                var updateService = Handler?.MauiContext?.Services?.GetService<UpdateNotificationService>();
-                if (updateService != null)
-                {
-                    await updateService.CheckForUpdatesOnStartupAsync();
-                }
+                // MainPageから呼び出されるように修正
+                Debug.WriteLine("アップデートチェックをスキップしました（実装準備中）");
             }
             catch (Exception ex)
             {

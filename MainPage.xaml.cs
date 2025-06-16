@@ -24,17 +24,22 @@ namespace AnkiPlus_MAUI
         private static readonly string FolderPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "AnkiPlus");
         private readonly CardSyncService _cardSyncService;
+        private readonly UpdateNotificationService _updateService;
         private bool _isSyncing = false;
         private MainPageViewModel _viewModel;
 
-        public MainPage(CardSyncService cardSyncService)
+        public MainPage(CardSyncService cardSyncService, UpdateNotificationService updateService)
         {
             InitializeComponent();
             _viewModel = new MainPageViewModel();
             BindingContext = _viewModel;
             _cardSyncService = cardSyncService;
+            _updateService = updateService;
             _currentPath.Push(FolderPath);
             LoadNotes();
+            
+            // ページが読み込まれた後にアップデートチェックを実行
+            Loaded += MainPage_Loaded;
 
             // 初期レイアウトの設定
             if (NotesCollectionView?.ItemsLayout is GridItemsLayout gridLayout)
@@ -47,6 +52,20 @@ namespace AnkiPlus_MAUI
             if (NotesCollectionView != null)
             {
                 NotesCollectionView.VerticalOptions = LayoutOptions.Start;
+            }
+        }
+
+        private async void MainPage_Loaded(object sender, EventArgs e)
+        {
+            try
+            {
+                // ページが読み込まれた後、少し遅延してからアップデートチェックを実行
+                await Task.Delay(3000);
+                await _updateService.CheckForUpdatesOnStartupAsync();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"アップデートチェック中にエラー: {ex.Message}");
             }
         }
 

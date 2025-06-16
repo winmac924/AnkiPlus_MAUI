@@ -33,14 +33,14 @@ public static class VersionHelper
     /// <summary>
     /// アプリケーション情報を取得します
     /// </summary>
-    public static AppInfo GetAppInfo()
+    public static AppVersionInfo GetAppInfo()
     {
-        return new AppInfo
+        return new AppVersionInfo
         {
-            Name = AppInfo.Current.Name,
+            Name = "AnkiPlus MAUI",
             Version = GetCurrentVersion(),
-            PackageName = AppInfo.Current.PackageName,
-            BuildString = AppInfo.Current.BuildString
+            PackageName = "com.ankiplus.maui",
+            BuildString = GetCurrentVersion()
         };
     }
 
@@ -62,7 +62,7 @@ public static class VersionHelper
     }
 }
 
-public class AppInfo
+public class AppVersionInfo
 {
     public string Name { get; set; } = string.Empty;
     public string Version { get; set; } = string.Empty;

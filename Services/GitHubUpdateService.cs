@@ -73,7 +73,16 @@ public class GitHubUpdateService
 
     private string? GetMsixDownloadUrl(GitHubRelease release)
     {
-        // .msix ファイルを検索
+        // .exe ファイルを最優先で検索
+        var exeAsset = release.Assets?.FirstOrDefault(asset => 
+            asset.Name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase));
+
+        if (exeAsset != null)
+        {
+            return exeAsset.BrowserDownloadUrl;
+        }
+
+        // .msix ファイルを検索（後方互換性）
         var msixAsset = release.Assets?.FirstOrDefault(asset => 
             asset.Name.EndsWith(".msix", StringComparison.OrdinalIgnoreCase));
 
@@ -82,7 +91,7 @@ public class GitHubUpdateService
             return msixAsset.BrowserDownloadUrl;
         }
 
-        // .zip ファイルも検索（MSIXが含まれている可能性）
+        // .zip ファイルも検索（実行ファイルが含まれている可能性）
         var zipAsset = release.Assets?.FirstOrDefault(asset => 
             asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) &&
             asset.Name.Contains("windows", StringComparison.OrdinalIgnoreCase));
@@ -147,13 +156,19 @@ public class GitHubUpdateService
             
             _logger.LogInformation("ダウンロード完了: {Path}", tempPath);
             
+            // EXEファイルの場合、直接実行
+            if (fileName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+            {
+                return await InstallExeAsync(tempPath);
+            }
+
             // MSIXファイルの場合、直接インストール
             if (fileName.EndsWith(".msix", StringComparison.OrdinalIgnoreCase))
             {
                 return await InstallMsixAsync(tempPath);
             }
             
-            // ZIPファイルの場合、解凍してMSIXを探す
+            // ZIPファイルの場合、解凍して実行ファイルを探す
             if (fileName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
             {
                 return await ExtractAndInstallFromZipAsync(tempPath);
@@ -164,6 +179,31 @@ public class GitHubUpdateService
         catch (Exception ex)
         {
             _logger.LogError(ex, "アップデートのダウンロード・インストール中にエラーが発生しました");
+            return false;
+        }
+    }
+
+    private async Task<bool> InstallExeAsync(string exePath)
+    {
+        try
+        {
+            // 新しいバージョンのEXEを実行
+            var startInfo = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = exePath,
+                UseShellExecute = true,
+                Arguments = "--update-mode" // 更新モードフラグ（必要に応じて）
+            };
+            
+            System.Diagnostics.Process.Start(startInfo);
+            
+            // 現在のアプリケーションを終了
+            Application.Current?.Quit();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "EXE インストール中にエラーが発生しました");
             return false;
         }
     }

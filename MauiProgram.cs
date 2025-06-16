@@ -12,8 +12,8 @@ public static class MauiProgram
 		var builder = MauiApp.CreateBuilder();
 		builder
 			.UseMauiApp<App>()
-			.UseSkiaSharp()
-			.UseKeyListener()
+            .UseSkiaSharp()
+            .UseKeyListener()
 			.ConfigureFonts(fonts =>
 			{
 				fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
@@ -27,10 +27,14 @@ public static class MauiProgram
 		builder.Services.AddHttpClient();
 		builder.Services.AddSingleton<GitHubUpdateService>();
 		builder.Services.AddSingleton<UpdateNotificationService>();
+		
+		// MainPageとLoginPageをDIに登録
+		builder.Services.AddTransient<MainPage>();
+		builder.Services.AddTransient<LoginPage>();
 
 #if DEBUG
 		builder.Services.AddBlazorWebViewDeveloperTools();
-		builder.Logging.AddDebug();
+        builder.Logging.AddDebug();
 #endif
 
 		return builder.Build();
