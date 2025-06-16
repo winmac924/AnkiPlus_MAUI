@@ -7,6 +7,7 @@ using System.Text.RegularExpressions;
 using System.Web;
 using System.Linq;
 using System.Collections.Generic;
+using System.Text.Json;
 
 namespace AnkiPlus_MAUI
 {
@@ -14,7 +15,7 @@ namespace AnkiPlus_MAUI
     {
         private string cardsFilePath;
         private string tempExtractPath;
-        private List<string> cards = new List<string>();
+        private List<CardData> cards = new List<CardData>();
         private int currentIndex = 0;
         private int correctCount = 0;
         private int incorrectCount = 0;
@@ -25,6 +26,32 @@ namespace AnkiPlus_MAUI
         private Dictionary<int, CardResult> results = new Dictionary<int, CardResult>();
         private bool showAnswer = false;  // 解答表示フラグ
         private string frontText = "";
+
+        // 新形式用のカードデータクラス
+        private class CardData
+        {
+            public string id { get; set; }
+            public string type { get; set; }
+            public string front { get; set; }
+            public string back { get; set; }
+            public string question { get; set; }
+            public string explanation { get; set; }
+            public List<ChoiceItem> choices { get; set; }
+            public List<SelectionRect> selectionRects { get; set; }
+            public string imageFileName { get; set; } // 画像穴埋めカード用の画像ファイル名
+        }
+        private class ChoiceItem
+        {
+            public string text { get; set; }
+            public bool isCorrect { get; set; }
+        }
+        private class SelectionRect
+        {
+            public float x { get; set; }
+            public float y { get; set; }
+            public float width { get; set; }
+            public float height { get; set; }
+        }
 
         private class CardResult
         {
@@ -50,36 +77,8 @@ namespace AnkiPlus_MAUI
             tempExtractPath = Path.Combine(Path.GetTempPath(), "AnkiPlus_" + Guid.NewGuid().ToString());
             Directory.CreateDirectory(tempExtractPath);
 
-            // カードデータを直接メモリ上で処理
-            cards = new List<string>();
-            foreach (var content in cardsList)
-            {
-                var lines = content.Split(new[] { '\r', '\n' }, StringSplitOptions.None);
-                var card = new List<string>();
-
-                foreach (var line in lines)
-                {
-                    if (line.Trim() == "---")
-                    {
-                        if (card.Count > 0)
-                        {
-                            cards.Add(string.Join("\n", card));
-                            card.Clear();
-                        }
-                    }
-                    else
-                    {
-                        card.Add(line);
-                    }
-                }
-
-                // 最後のカードを追加
-                if (card.Count > 0)
-                {
-                    cards.Add(string.Join("\n", card));
-                }
-            }
-
+            // 新形式ではこのコンストラクタは使わない想定ですが、空リストで初期化
+            cards = new List<CardData>();
             Debug.WriteLine($"Loaded {cards.Count} cards");
             DisplayCard();
         }
@@ -93,202 +92,23 @@ namespace AnkiPlus_MAUI
         // カードを読み込む
         private void LoadCards()
         {
-            Debug.WriteLine($"Loading cards from: {cardsFilePath}");
-            if (File.Exists(cardsFilePath))
-            {
-                var content = File.ReadAllText(cardsFilePath);
-                Debug.WriteLine($"File content length: {content.Length}");
-                var lines = content.Split(new[] { '\r', '\n' }, StringSplitOptions.None);
-                Debug.WriteLine($"Total lines in file: {lines.Length}");
+            cards.Clear();
+            string cardsDir = Path.Combine(tempExtractPath, "cards");
+            if (!File.Exists(cardsFilePath) || !Directory.Exists(cardsDir)) return;
 
-                // メタデータ行をスキップ
-                var cardLines = lines.Skip(1).ToArray();
-                var card = new List<string>();
-
-                foreach (var line in cardLines)
+            var lines = File.ReadAllLines(cardsFilePath);
+            foreach (var line in lines.Skip(1)) // 1行目はカード数
+                        {
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                var parts = line.Split(',');
+                if (parts.Length < 1) continue;
+                string uuid = parts[0];
+                string jsonPath = Path.Combine(cardsDir, $"{uuid}.json");
+                if (File.Exists(jsonPath))
                 {
-                    if (line.Trim() == "---")
-                    {
-                        if (card.Count > 1)  // カードタイプと少なくとも1行の内容がある場合
-                        {
-                            // 空行を除去してカードを追加
-                            var trimmedCard = card.Where(l => !string.IsNullOrWhiteSpace(l)).ToList();
-                            if (trimmedCard.Count > 1)  // カードタイプと少なくとも1行の内容がある場合
-                            {
-                                cards.Add(string.Join("\n", trimmedCard));
-                                Debug.WriteLine($"Added card with {trimmedCard.Count} lines");
-                            }
-                            card.Clear();
-                        }
-                    }
-                    else
-                    {
-                        card.Add(line);
-                    }
-                }
-
-                // 最後のカードを追加
-                if (card.Count > 1)  // カードタイプと少なくとも1行の内容がある場合
-                {
-                    // 空行を除去してカードを追加
-                    var trimmedCard = card.Where(l => !string.IsNullOrWhiteSpace(l)).ToList();
-                    if (trimmedCard.Count > 1)  // カードタイプと少なくとも1行の内容がある場合
-                    {
-                        cards.Add(string.Join("\n", trimmedCard));
-                        Debug.WriteLine($"Added final card with {trimmedCard.Count} lines");
-                    }
-                }
-
-                Debug.WriteLine($"Total cards loaded: {cards.Count}");
-
-                // 結果ファイルが存在する場合、問題の出題順序を決定
-                string resultsFilePath = Path.Combine(tempExtractPath, "results.txt");
-                if (File.Exists(resultsFilePath))
-                {
-                    var resultLines = File.ReadAllLines(resultsFilePath);
-                    var answeredQuestions = new HashSet<int>();
-                    var incorrectQuestions = new List<int>();
-                    var allCorrect = true;
-
-                    foreach (var line in resultLines)
-                    {
-                        var parts = line.Split('|');
-                        if (parts.Length >= 2)  // 基本情報を含む行を確認
-                        {
-                            if (int.TryParse(parts[0].Trim(), out int questionNumber))
-                            {
-                                // 問題番号を0ベースのインデックスに変換
-                                int questionIndex = questionNumber - 1;
-
-                                // 現在表示されている問題の結果のみを処理
-                                if (questionIndex == currentIndex)
-                                {
-                                    answeredQuestions.Add(questionIndex);
-
-                                    // 基本情報から正誤を取得
-                                    var basicInfo = parts[1].Trim();
-                                    bool wasCorrect = basicInfo.Contains("正解");
-
-                                    // 結果オブジェクトを作成または更新
-                                    if (!results.ContainsKey(questionNumber))
-                                    {
-                                        results[questionNumber] = new CardResult { OriginalQuestionNumber = questionNumber };
-                                    }
-                                    results[questionNumber].WasCorrect = wasCorrect;
-                                    Debug.WriteLine($"問題 {questionNumber} の結果を更新: {(wasCorrect ? "正解" : "不正解")}");
-
-                                    // 不正解の問題をリストに追加
-                                    if (!wasCorrect)
-                                    {
-                                        incorrectQuestions.Add(questionIndex);
-                                        allCorrect = false;
-                                        Debug.WriteLine($"不正解の問題を追加: {questionNumber}");
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // 未回答の問題を探す
-                    var unansweredQuestions = new List<int>();
-                    for (int i = 0; i < cards.Count; i++)
-                    {
-                        if (!answeredQuestions.Contains(i))
-                        {
-                            unansweredQuestions.Add(i);
-                        }
-                    }
-
-                    // 出題順序の決定
-                    if (unansweredQuestions.Any())
-                    {
-                        // 未回答の問題がある場合、それらを先に出題
-                        var random = new Random();
-                        currentIndex = unansweredQuestions[random.Next(unansweredQuestions.Count)];
-                        Debug.WriteLine($"未回答の問題を出題: {currentIndex + 1}");
-                    }
-                    else if (incorrectQuestions.Any())
-                    {
-                        // 不正解の問題がある場合、それらを出題
-                        var random = new Random();
-                        var originalCards = cards.ToList();  // 元のカードリストを保持
-                        var newCards = new List<string>();
-
-                        // 不正解の問題をシャッフルして追加
-                        var shuffledIncorrect = incorrectQuestions.OrderBy(x => random.Next()).ToList();
-                        foreach (var index in shuffledIncorrect)
-                        {
-                            if (index < originalCards.Count)
-                            {
-                                newCards.Add(originalCards[index]);
-                                Debug.WriteLine($"不正解の問題を追加: {index + 1}");
-                            }
-                        }
-
-                        // 正解の問題をシャッフルして追加
-                        var correctQuestions = Enumerable.Range(0, originalCards.Count)
-                            .Where(i => !incorrectQuestions.Contains(i))
-                            .OrderBy(x => random.Next())
-                            .ToList();
-
-                        foreach (var index in correctQuestions)
-                        {
-                            if (index < originalCards.Count)
-                            {
-                                newCards.Add(originalCards[index]);
-                                Debug.WriteLine($"正解の問題を追加: {index + 1}");
-                            }
-                        }
-
-                        cards = newCards;
-                        currentIndex = 0;  // シャッフル後の最初の問題から開始
-                        Debug.WriteLine($"シャッフル後の問題数: {cards.Count} (不正解: {shuffledIncorrect.Count}, 正解: {correctQuestions.Count})");
-                    }
-                    else if (allCorrect)
-                    {
-                        // すべて正解の場合、全問題をシャッフル
-                        var random = new Random();
-                        var newCards = new List<string>();
-                        var indices = Enumerable.Range(0, cards.Count).ToList();
-                        
-                        // Fisher-Yatesシャッフル
-                        for (int i = indices.Count - 1; i > 0; i--)
-                        {
-                            int j = random.Next(i + 1);
-                            int temp = indices[i];
-                            indices[i] = indices[j];
-                            indices[j] = temp;
-                        }
-
-                        // シャッフルされた順序でカードを追加
-                        foreach (var index in indices)
-                        {
-                            // カードの先頭に問題番号を追加
-                            var cardContent = cards[index];
-                            var contentLines = cardContent.Split('\n').ToList();
-                            contentLines.Insert(0, $"問題番号: {index + 1}");
-                            newCards.Add(string.Join("\n", contentLines));
-                            Debug.WriteLine($"シャッフル後の問題 {index + 1} を追加");
-                        }
-
-                        // 新しいカードリストを設定
-                        cards = newCards;
-                        currentIndex = 0;  // 最初の問題から開始
-                        Debug.WriteLine($"全問題をシャッフルして出題（問題数: {cards.Count}）");
-                    }
-                    else
-                    {
-                        // デフォルトは最初の問題から
-                        currentIndex = 0;
-                        Debug.WriteLine("デフォルトで最初の問題を出題");
-                    }
-
-                    // 現在のインデックスが有効範囲内か確認
-                    if (currentIndex < 0 || currentIndex >= cards.Count)
-                    {
-                        currentIndex = 0;
-                        Debug.WriteLine("インデックスが範囲外のため、最初の問題を出題");
-                    }
+                    var json = File.ReadAllText(jsonPath);
+                    var card = JsonSerializer.Deserialize<CardData>(json);
+                    if (card != null) cards.Add(card);
                 }
             }
         }
@@ -367,57 +187,31 @@ namespace AnkiPlus_MAUI
                 }
 
                 var card = cards[currentIndex];
-                Debug.WriteLine($"Current card content: {card}");
-                var lines = card.Split('\n')
-                               .Select(line => line.Trim())
-                               .Where(line => !string.IsNullOrWhiteSpace(line))
-                               .ToList();
-                Debug.WriteLine($"Card lines count: {lines.Count}");
-
-                if (lines.Count == 0)
-                {
-                    Debug.WriteLine("Empty card content, moving to next card");
-                    currentIndex++;
-                    DisplayCard();
-                    return;
-                }
-
-                // 問題番号を取得
-                int questionNumber = 0;
-                if (lines[0].StartsWith("問題番号:"))
-                {
-                    if (int.TryParse(lines[0].Split(':')[1].Trim(), out int number))
-                    {
-                        questionNumber = number;
-                    }
-                    lines.RemoveAt(0);  // 問題番号行を削除
-                }
-                Debug.WriteLine($"現在の問題番号: {questionNumber}/{cards.Count}");
+                Debug.WriteLine($"Current card id: {card.id}, type: {card.type}");
 
                 // レイアウトの初期化
                 BasicCardLayout.IsVisible = false;
                 ChoiceCardLayout.IsVisible = false;
                 ImageFillCardLayout.IsVisible = false;
-                AnswerLine.IsVisible = false;
 
-                if (lines[0].Contains("基本"))
+                if (card.type.Contains("基本"))
                 {
                     Debug.WriteLine("Displaying basic card");
-                    DisplayBasicCard(lines);
+                    DisplayBasicCard(card);
                 }
-                else if (lines[0].Contains("選択肢"))
+                else if (card.type.Contains("選択肢"))
                 {
                     Debug.WriteLine("Displaying choice card");
-                    DisplayChoiceCard(lines);
+                    DisplayChoiceCard(card);
                 }
-                else if (lines[0].Contains("画像穴埋め"))
+                else if (card.type.Contains("画像穴埋め"))
                 {
                     Debug.WriteLine("Displaying image fill card");
-                    DisplayImageFillCard(lines);
+                    DisplayImageFillCard(card);
                 }
                 else
                 {
-                    Debug.WriteLine($"Unknown card type: {lines[0]}");
+                    Debug.WriteLine($"Unknown card type: {card.type}");
                     // 不明なカードタイプの場合は次のカードへ
                     currentIndex++;
                     DisplayCard();
@@ -467,20 +261,19 @@ namespace AnkiPlus_MAUI
             return (frontText.ToString().Trim(), backText.ToString().Trim());
         }
         // 基本・穴埋めカード表示
-        private void DisplayBasicCard(List<string> lines)
+        private void DisplayBasicCard(CardData card)
         {
             BasicCardLayout.IsVisible = true;
-
-            // 複数行対応でパース
-            var (frontText, backText) = ParseBasicCard(lines);
-            this.frontText = frontText; // クラス変数に保存
+            this.frontText = card.front ?? "";
+            string frontText = card.front ?? "";
+            string backText = card.back ?? "";
 
             // 画像タグの処理
-            var matches = Regex.Matches(frontText, @"<<img(\d+)>>");
+            var matches = Regex.Matches(frontText, @"<<img_.*?\.jpg>>");
             foreach (Match match in matches)
             {
-                int imgNum = int.Parse(match.Groups[1].Value);
-                string imgPath = Path.Combine(tempExtractPath, "img", $"img{imgNum}.png");
+                string imgFileName = match.Value.Trim('<', '>');
+                string imgPath = Path.Combine(tempExtractPath, "img", imgFileName);
                 if (File.Exists(imgPath))
                 {
                     string base64Image = ConvertImageToBase64(imgPath);
@@ -508,11 +301,11 @@ namespace AnkiPlus_MAUI
         private List<CheckBox> checkBoxes = new List<CheckBox>();  // チェックボックスを保持
         private List<bool> currentCorrectFlags = new List<bool>();  // 現在のカードの正誤情報
 
-        private void DisplayChoiceCard(List<string> lines)
+        private void DisplayChoiceCard(CardData card)
         {
             ChoiceCardLayout.IsVisible = true;
 
-            var (question, explanation, choices, isCorrectFlags) = ParseChoiceCard(lines);
+            var (question, explanation, choices, isCorrectFlags) = ParseChoiceCard(card);
 
             ChoiceQuestionWebView.Source = new HtmlWebViewSource
             {
@@ -588,12 +381,13 @@ namespace AnkiPlus_MAUI
             ChoiceExplanationWebView.IsVisible = false;
         }
 
-        private async void DisplayImageFillCard(List<string> lines)
+        private async void DisplayImageFillCard(CardData card)
         {
             ImageFillCardLayout.IsVisible = true;
             selectionRects.Clear();
 
-            string imageFileName = lines.FirstOrDefault(l => l.StartsWith("画像:"))?.Split(": ")[1];
+            // imageFileNameフィールドから画像ファイル名を取得
+            string imageFileName = GetImageFileNameFromCard(card);
 
             if (!string.IsNullOrWhiteSpace(imageFileName))
             {
@@ -609,28 +403,51 @@ namespace AnkiPlus_MAUI
                 else
                 {
                     Debug.WriteLine($"画像が存在しません: {selectedImagePath}");
+                    Debug.WriteLine($"探索パス: {selectedImagePath}");
+                    Debug.WriteLine($"imgフォルダ内容: {string.Join(", ", Directory.GetFiles(imageFolder))}");
                     await DisplayAlert("エラー", "画像が存在しません。", "OK");
                     return;
                 }
             }
             else
             {
+                Debug.WriteLine($"画像ファイル名が取得できません。card.front: '{card.front}', JSONデータ確認が必要");
                 await DisplayAlert("エラー", "画像パスが無効です。", "OK");
                 return;
             }
 
             // 範囲の追加
-            foreach (var line in lines.Where(l => l.StartsWith("範囲:")))
-            {
-                var values = line.Split(": ")[1].Split(',').Select(float.Parse).ToArray();
-                if (values.Length == 4)
+            foreach (var line in card.selectionRects)
                 {
-                    selectionRects.Add(new SKRect(values[0], values[1], values[2], values[3]));
-                }
+                selectionRects.Add(new SKRect(line.x, line.y, line.x + line.width, line.y + line.height));
             }
 
             CanvasView.InvalidateSurface();
         }
+
+        /// <summary>
+        /// カードデータから画像ファイル名を取得
+        /// </summary>
+        private string GetImageFileNameFromCard(CardData card)
+        {
+            // 新形式: imageFileNameフィールドから取得
+            if (!string.IsNullOrWhiteSpace(card.imageFileName))
+            {
+                Debug.WriteLine($"新形式の画像ファイル名を使用: {card.imageFileName}");
+                return card.imageFileName;
+            }
+
+            // 旧形式: frontフィールドから取得（後方互換性のため）
+            if (!string.IsNullOrWhiteSpace(card.front))
+            {
+                Debug.WriteLine($"旧形式のfrontフィールドを使用: {card.front}");
+                return card.front;
+            }
+
+            Debug.WriteLine("画像ファイル名が見つかりません");
+            return null;
+        }
+
         private void OnCanvasViewPaintSurface(object sender, SKPaintSurfaceEventArgs e)
         {
             var surface = e.Surface;
@@ -652,19 +469,59 @@ namespace AnkiPlus_MAUI
                 {
                     var bitmap = SKBitmap.Decode(stream);
                     Debug.WriteLine($"画像サイズ: {bitmap.Width} x {bitmap.Height}");
+                    Debug.WriteLine($"キャンバスサイズ: {info.Width} x {info.Height}");
+                    
                     if (bitmap == null)
                     {
                         Debug.WriteLine("画像のデコードに失敗しました。");
                         return;
                     }
 
-                    // 画像を描画（サイズ調整なし）
-                    var imageRect = new SKRect(0, 0, info.Width, info.Height);
-                    canvas.DrawBitmap(bitmap, imageRect);
-
-                    // 範囲をそのまま表示
-                    foreach (var rect in selectionRects)
+                    // アスペクト比を維持して画像を描画
+                    float imageAspect = (float)bitmap.Width / bitmap.Height;
+                    float canvasAspect = (float)info.Width / info.Height;
+                    
+                    SKRect imageRect;
+                    float scale;
+                    
+                    if (imageAspect > canvasAspect)
                     {
+                        // 画像の方が横長：幅をキャンバスに合わせ、高さを調整
+                        scale = (float)info.Width / bitmap.Width;
+                        float scaledHeight = bitmap.Height * scale;
+                        float offsetY = (info.Height - scaledHeight) / 2;
+                        imageRect = new SKRect(0, offsetY, info.Width, offsetY + scaledHeight);
+                    }
+                    else
+                    {
+                        // 画像の方が縦長：高さをキャンバスに合わせ、幅を調整
+                        scale = (float)info.Height / bitmap.Height;
+                        float scaledWidth = bitmap.Width * scale;
+                        float offsetX = (info.Width - scaledWidth) / 2;
+                        imageRect = new SKRect(offsetX, 0, offsetX + scaledWidth, info.Height);
+                    }
+                    
+                    canvas.DrawBitmap(bitmap, imageRect);
+                    Debug.WriteLine($"描画領域: {imageRect.Left}, {imageRect.Top}, {imageRect.Right}, {imageRect.Bottom}");
+                    Debug.WriteLine($"スケール: {scale}");
+
+                    // 正規化座標を実際の座標に変換して範囲を表示
+                    foreach (var normalizedRect in selectionRects)
+                    {
+                        // 正規化座標を実際の画像座標に変換
+                        float actualX = normalizedRect.Left * bitmap.Width;
+                        float actualY = normalizedRect.Top * bitmap.Height;
+                        float actualWidth = normalizedRect.Width * bitmap.Width;
+                        float actualHeight = normalizedRect.Height * bitmap.Height;
+                        
+                        // 画像座標をキャンバス座標に変換
+                        float canvasX = imageRect.Left + (actualX * scale);
+                        float canvasY = imageRect.Top + (actualY * scale);
+                        float canvasWidth = actualWidth * scale;
+                        float canvasHeight = actualHeight * scale;
+                        
+                        var displayRect = new SKRect(canvasX, canvasY, canvasX + canvasWidth, canvasY + canvasHeight);
+                        
                         // 塗りつぶし用のペイント
                         using (var fillPaint = new SKPaint
                         {
@@ -672,7 +529,7 @@ namespace AnkiPlus_MAUI
                             Style = SKPaintStyle.Fill
                         })
                         {
-                            canvas.DrawRect(rect, fillPaint);
+                            canvas.DrawRect(displayRect, fillPaint);
                         }
 
                         // 枠線表示
@@ -683,10 +540,11 @@ namespace AnkiPlus_MAUI
                             StrokeWidth = 3
                         })
                         {
-                            canvas.DrawRect(rect, borderPaint);
+                            canvas.DrawRect(displayRect, borderPaint);
                         }
 
-                        Debug.WriteLine($"表示範囲: {rect.Left}, {rect.Top}, {rect.Right}, {rect.Bottom}");
+                        Debug.WriteLine($"正規化座標: {normalizedRect.Left:F3}, {normalizedRect.Top:F3}, {normalizedRect.Width:F3}, {normalizedRect.Height:F3}");
+                        Debug.WriteLine($"表示座標: {displayRect.Left:F1}, {displayRect.Top:F1}, {displayRect.Right:F1}, {displayRect.Bottom:F1}");
                     }
                 }
             }
@@ -697,56 +555,21 @@ namespace AnkiPlus_MAUI
         }
 
         // 選択肢カードを解析
-        private (string Question, string Explanation, List<string> Choices, List<bool> IsCorrect) ParseChoiceCard(List<string> lines)
+        private (string Question, string Explanation, List<string> Choices, List<bool> IsCorrect) ParseChoiceCard(CardData card)
         {
-            var question = new StringBuilder();
-            var explanation = new StringBuilder();
+            string question = card.question ?? "";
+            string explanation = card.explanation ?? "";
             var choices = new List<string>();
             var isCorrectFlags = new List<bool>();
-
-            bool isQuestion = false;
-            bool isExplanation = false;
-
-            foreach (var line in lines)
+            if (card.choices != null)
             {
-                if (line.StartsWith("問題:"))
+                foreach (var c in card.choices)
                 {
-                    isQuestion = true;
-                    isExplanation = false;
-                    question.AppendLine(line.Substring(3));
-                }
-                else if (line.StartsWith("解説:"))
-                {
-                    isExplanation = true;
-                    isQuestion = false;
-                    explanation.AppendLine(line.Substring(3));
-                }
-                else if (line.StartsWith("選択肢:"))
-                {
-                    var choiceText = line.Substring(4);
-
-                    // 正誤フラグを判定
-                    bool isCorrect = choiceText.Contains("(正解)");
-                    isCorrectFlags.Add(isCorrect);
-
-                    // 表示用の選択肢テキストは `(正解)` や `(不正解)` を除去
-                    var cleanChoice = Regex.Replace(choiceText, @"\s*\(正解\)|\s*\(不正解\)", "").Trim();
-                    choices.Add(cleanChoice);
-                }
-                else
-                {
-                    if (isQuestion)
-                    {
-                        question.AppendLine(line);
-                    }
-                    else if (isExplanation)
-                    {
-                        explanation.AppendLine(line);
-                    }
+                    choices.Add(c.text);
+                    isCorrectFlags.Add(c.isCorrect);
                 }
             }
-
-            return (question.ToString().Trim(), explanation.ToString().Trim(), choices, isCorrectFlags);
+            return (question, explanation, choices, isCorrectFlags);
         }
 
         private void OnShowAnswerClicked(object sender, EventArgs e)
@@ -856,38 +679,18 @@ namespace AnkiPlus_MAUI
         {
             try
             {
-                // 現在のカードから問題番号を取得
-                var card = cards[currentIndex];
-                var lines = card.Split('\n')
-                               .Select(line => line.Trim())
-                               .Where(line => !string.IsNullOrWhiteSpace(line))
-                               .ToList();
-
-                int questionNumber = 0;
-                if (lines[0].StartsWith("問題番号:"))
-                {
-                    if (int.TryParse(lines[0].Split(':')[1].Trim(), out int number))
-                    {
-                        questionNumber = number;
-                    }
-                }
-
-                if (questionNumber > 0)
-                {
+                // 現在のカードのインデックスをそのまま利用
+                int questionNumber = currentIndex + 1;
                     if (!results.ContainsKey(questionNumber))
                     {
                         results[questionNumber] = new CardResult { OriginalQuestionNumber = questionNumber };
                     }
-
                     var result = results[questionNumber];
                     result.WasCorrect = true;  // 正解として記録
                     result.OriginalQuestionNumber = questionNumber;  // 元の問題番号を保持
-
                     // 次回表示時間を設定
                     result.NextReviewTime = DateTime.Now.AddMinutes(10);  // 10分後に再表示
-
                     SaveResultsToFile();
-                }
 
                 currentIndex++;
                 Correct.IsVisible = false;
@@ -908,38 +711,17 @@ namespace AnkiPlus_MAUI
         {
             try
             {
-                // 現在のカードから問題番号を取得
-                var card = cards[currentIndex];
-                var lines = card.Split('\n')
-                               .Select(line => line.Trim())
-                               .Where(line => !string.IsNullOrWhiteSpace(line))
-                               .ToList();
-
-                int questionNumber = 0;
-                if (lines[0].StartsWith("問題番号:"))
-                {
-                    if (int.TryParse(lines[0].Split(':')[1].Trim(), out int number))
-                    {
-                        questionNumber = number;
-                    }
-                }
-
-                if (questionNumber > 0)
-                {
+                int questionNumber = currentIndex + 1;
                     if (!results.ContainsKey(questionNumber))
                     {
                         results[questionNumber] = new CardResult { OriginalQuestionNumber = questionNumber };
                     }
-
                     var result = results[questionNumber];
                     result.WasCorrect = false;  // 不正解として記録
                     result.OriginalQuestionNumber = questionNumber;  // 元の問題番号を保持
-
                     // 次回表示時間を設定
                     result.NextReviewTime = DateTime.Now.AddMinutes(1);  // 1分後に再表示
-
                     SaveResultsToFile();
-                }
 
                 currentIndex++;
                 Correct.IsVisible = false;
@@ -982,12 +764,12 @@ namespace AnkiPlus_MAUI
             if (string.IsNullOrWhiteSpace(text)) return "";
 
             // 画像タグを最初に処理
-            var matches = Regex.Matches(text, @"<<img(\d+)>>");
+            var matches = Regex.Matches(text, @"<<img_.*?\.jpg>>");
             Debug.WriteLine($"画像タグ数: {matches.Count}");
             foreach (Match match in matches)
             {
-                int imgNum = int.Parse(match.Groups[1].Value);
-                string imgPath = Path.Combine(tempExtractPath, "img", $"img{imgNum}.png");
+                string imgFileName = match.Value.Trim('<', '>');
+                string imgPath = Path.Combine(tempExtractPath, "img", imgFileName);
 
                 if (File.Exists(imgPath))
                 {
@@ -998,12 +780,12 @@ namespace AnkiPlus_MAUI
                     }
                     else
                     {
-                        text = text.Replace(match.Value, $"[画像が見つかりません: img{imgNum}.png]");
+                        text = text.Replace(match.Value, $"[画像が見つかりません: {imgFileName}]");
                     }
                 }
                 else
                 {
-                    text = text.Replace(match.Value, $"[画像が見つかりません: img{imgNum}.png]");
+                    text = text.Replace(match.Value, $"[画像が見つかりません: {imgFileName}]");
                 }
             }
 

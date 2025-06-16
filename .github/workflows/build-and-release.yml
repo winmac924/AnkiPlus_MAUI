@@ -1,0 +1,122 @@
+name: Build and Release AnkiPlus MAUI
+
+on:
+  push:
+    tags:
+      - 'v*'  # v1.0.0のようなタグでトリガー
+  workflow_dispatch:  # 手動実行も可能
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    
+    env:
+      PROJECT_PATH: 'AnkiPlus_MAUI.csproj'
+      
+    steps:
+    - name: 📥 Checkout Repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: 🔧 Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '9.0.x'
+    
+    - name: 🔍 Extract Version from Tag
+      id: get_version
+      run: |
+        if ("${{ github.ref_type }}" -eq "tag") {
+          $version = "${{ github.ref_name }}" -replace "^v", ""
+          echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+          echo "TAG_NAME=${{ github.ref_name }}" >> $env:GITHUB_OUTPUT
+        } else {
+          $version = "1.0.0-dev"
+          $tag = "v1.0.0-dev"
+          echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+          echo "TAG_NAME=$tag" >> $env:GITHUB_OUTPUT
+        }
+        echo "Building version: $version"
+      shell: powershell
+      
+    - name: 🛠️ Restore Dependencies
+      run: dotnet restore ${{ env.PROJECT_PATH }}
+      
+    - name: 🏗️ Build Application
+      run: |
+        dotnet build ${{ env.PROJECT_PATH }} -c Release -f net9.0-windows10.0.19041.0 --no-restore
+        
+    - name: 📦 Publish MSIX Package
+      run: |
+        dotnet publish ${{ env.PROJECT_PATH }} -c Release -f net9.0-windows10.0.19041.0 -p:RuntimeIdentifierOverride=win10-x64 -p:WindowsPackageType=MSIX -p:WindowsAppSDKSelfContained=true -p:ApplicationDisplayVersion=${{ steps.get_version.outputs.VERSION }}
+        
+    - name: 🔍 Find MSIX Files
+      id: find_msix
+      run: |
+        $msixFiles = Get-ChildItem -Path "bin/Release/net9.0-windows10.0.19041.0/win10-x64/publish/" -Filter "*.msix" -Recurse
+        if ($msixFiles.Count -gt 0) {
+          $msixPath = $msixFiles[0].FullName
+          $msixName = $msixFiles[0].Name
+          echo "MSIX_PATH=$msixPath" >> $env:GITHUB_OUTPUT
+          echo "MSIX_NAME=$msixName" >> $env:GITHUB_OUTPUT
+          echo "Found MSIX: $msixPath"
+        } else {
+          echo "❌ No MSIX files found!"
+          exit 1
+        }
+      shell: powershell
+      
+    - name: 📝 Create Release Notes
+      id: release_notes
+      run: |
+        $releaseNotes = @"
+        ## 🚀 AnkiPlus MAUI ${{ steps.get_version.outputs.VERSION }}
+        
+        ### 📥 インストール方法
+        1. 下記の ```.msix``` ファイルをダウンロード
+        2. ダブルクリックしてインストール
+        3. 必要に応じて「不明な発行元」の警告を許可
+        
+        ### 🔄 アップデート
+        - 既存のバージョンがインストールされている場合、自動的にアップデートされます
+        - アプリ内自動アップデート機能により、次回から手動ダウンロード不要
+        
+        ### 📋 変更内容
+        - パフォーマンスの改善
+        - バグ修正
+        - UI/UX の向上
+        
+        ### 🔧 システム要件
+        - Windows 10 (バージョン 1809 以降) または Windows 11
+        - .NET 9.0 Runtime (自動インストール)
+        
+        ---
+        **📖 詳細な変更履歴は [Commits](${{ github.server_url }}/${{ github.repository }}/commits/${{ steps.get_version.outputs.TAG_NAME }}) をご確認ください。**
+        "@
+        
+        # ファイルに出力してGitHub Actionsで利用
+        $releaseNotes | Out-File -FilePath "release-notes.md" -Encoding UTF8
+        echo "RELEASE_NOTES_FILE=release-notes.md" >> $env:GITHUB_OUTPUT
+      shell: powershell
+    
+    - name: 🏷️ Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.get_version.outputs.TAG_NAME }}
+        name: AnkiPlus MAUI ${{ steps.get_version.outputs.VERSION }}
+        body_path: ${{ steps.release_notes.outputs.RELEASE_NOTES_FILE }}
+        files: |
+          ${{ steps.find_msix.outputs.MSIX_PATH }}
+        draft: false
+        prerelease: ${{ contains(steps.get_version.outputs.VERSION, 'dev') || contains(steps.get_version.outputs.VERSION, 'alpha') || contains(steps.get_version.outputs.VERSION, 'beta') }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: ✅ Build Summary
+      run: |
+        echo "## 🎉 ビルド完了!" >> $GITHUB_STEP_SUMMARY
+        echo "- **バージョン**: ${{ steps.get_version.outputs.VERSION }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **タグ**: ${{ steps.get_version.outputs.TAG_NAME }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **MSIXファイル**: ${{ steps.find_msix.outputs.MSIX_NAME }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **リリースURL**: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ steps.get_version.outputs.TAG_NAME }}" >> $GITHUB_STEP_SUMMARY 

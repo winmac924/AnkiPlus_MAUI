@@ -2,6 +2,21 @@ using Microsoft.Maui.Controls;
 using System.Diagnostics;
 using System.IO.Compression;
 using Microsoft.Maui.Devices;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using AnkiPlus_MAUI.Models;
+using AnkiPlus_MAUI.Services;
+using Microsoft.Maui.Storage;
+using System;
+using System.IO;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+
+#if WINDOWS
+using Windows.Storage.Pickers;
+using Microsoft.UI.Xaml;
+using WinRT.Interop;
+#endif
 
 namespace AnkiPlus_MAUI
 {
@@ -24,7 +39,7 @@ namespace AnkiPlus_MAUI
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "AnkiPlus",
                 relativePath,
-                $"{Path.GetFileNameWithoutExtension(ankplsFilePath)}_temp" // Fix: Use Path.GetFileNameWithoutExtension to extract the file name without extension  
+                $"{Path.GetFileNameWithoutExtension(ankplsFilePath)}_temp"
             );
 
             // 一時ディレクトリが存在しない場合は作成  
@@ -66,7 +81,7 @@ namespace AnkiPlus_MAUI
                 // `cards.txt` 1行目にノート数が記載されている  
                 var lines = File.ReadAllLines(cardsFilePath);
 
-                if (lines.Length > 0 && int.TryParse(lines[1], out int questionCount))
+                if (lines.Length > 0 && int.TryParse(lines[0], out int questionCount))
                 {
                     return questionCount;
                 }
@@ -83,14 +98,30 @@ namespace AnkiPlus_MAUI
         // Add  
         private async void AddCardClicked(object sender, EventArgs e)
         {
-            if (Navigation != null)
+            try
             {
-                // Add.xaml に遷移（tempファイルのパスを渡す）  
-                await Navigation.PushAsync(new Add(ankplsFilePath, tempExtractPath));
+                Debug.WriteLine("AddCardClicked開始");
+                Debug.WriteLine($"ankplsFilePath: {ankplsFilePath}");
+                Debug.WriteLine($"tempExtractPath: {tempExtractPath}");
+
+                if (Navigation != null)
+                {
+                    Debug.WriteLine("Navigationが利用可能です");
+                    // Add.xaml に遷移（tempファイルのパスを渡す）  
+                    await Navigation.PushAsync(new Add(ankplsFilePath, tempExtractPath));
+                    Debug.WriteLine("Add.xamlへの遷移が完了しました");
+                }
+                else
+                {
+                    Debug.WriteLine("Navigationが利用できません");
+                    await DisplayAlert("Error", "Navigation is not available.", "OK");
+                }
             }
-            else
+            catch (Exception ex)
             {
-                await DisplayAlert("Error", "Navigation is not available.", "OK");
+                Debug.WriteLine($"AddCardClickedでエラー: {ex.Message}");
+                Debug.WriteLine($"スタックトレース: {ex.StackTrace}");
+                await DisplayAlert("エラー", $"カードの追加中にエラーが発生しました: {ex.Message}", "OK");
             }
         }
         // NotePage  
@@ -98,5 +129,177 @@ namespace AnkiPlus_MAUI
         {
             await Navigation.PushAsync(new NotePage(ankplsFilePath, tempExtractPath));
         }
+        private async void EditCardsClicked(object sender, EventArgs e)
+        {
+            try
+            {
+                Debug.WriteLine("EditCardsClicked開始");
+                Debug.WriteLine($"ankplsFilePath: {ankplsFilePath}");
+                Debug.WriteLine($"tempExtractPath: {tempExtractPath}");
+
+                if (Navigation != null)
+                {
+                    Debug.WriteLine("Navigationが利用可能です");
+                    // Edit.xaml に遷移
+                    await Navigation.PushAsync(new Edit(ankplsFilePath, tempExtractPath));
+                    Debug.WriteLine("Edit.xamlへの遷移が完了しました");
+                }
+                else
+                {
+                    Debug.WriteLine("Navigationが利用できません");
+                    await DisplayAlert("Error", "Navigation is not available.", "OK");
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"EditCardsClickedでエラー: {ex.Message}");
+                Debug.WriteLine($"スタックトレース: {ex.StackTrace}");
+                await DisplayAlert("エラー", $"カードの編集画面を開く際にエラーが発生しました: {ex.Message}", "OK");
+            }
+        }
+
+        private async void OnExportToAnkiClicked(object sender, EventArgs e)
+        {
+            try
+            {
+                string savePath = null;
+
+                // プラットフォーム固有の処理
+                if (DeviceInfo.Platform == DevicePlatform.WinUI)
+                {
+#if WINDOWS
+                    savePath = await GetWindowsSavePath();
+#else
+                    await DisplayAlert("エラー", "このプラットフォームではサポートされていません", "OK");
+                    return;
+#endif
+                }
+                else
+                {
+                    // 他のプラットフォーム用の処理
+                    var result = await FilePicker.PickAsync(new PickOptions
+                    {
+                        PickerTitle = "APKGファイルの保存先を選択",
+                        FileTypes = new FilePickerFileType(new Dictionary<DevicePlatform, IEnumerable<string>>
+                        {
+                            { DevicePlatform.WinUI, new[] { ".apkg" } },
+                            { DevicePlatform.macOS, new[] { "apkg" } }
+                        })
+                    });
+
+                    if (result != null)
+                    {
+                        savePath = result.FullPath;
+                    }
+                }
+
+                if (savePath != null)
+                {
+                    // カードデータの収集
+                    var cards = new List<Models.CardData>();
+                    var cardsDir = Path.Combine(tempExtractPath, "cards");
+                    if (Directory.Exists(cardsDir))
+                    {
+                        foreach (var jsonFile in Directory.GetFiles(cardsDir, "*.json"))
+                        {
+                            try
+                            {
+                                var jsonContent = await File.ReadAllTextAsync(jsonFile);
+                                var card = JsonSerializer.Deserialize<Models.CardData>(jsonContent);
+                                if (card != null)
+                                {
+                                    cards.Add(card);
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                Debug.WriteLine($"カードデータの読み込み中にエラー: {ex.Message}");
+                                continue;
+                            }
+                        }
+                    }
+
+                    if (cards.Count == 0)
+                    {
+                        await DisplayAlert("エラー", "カードデータが見つかりませんでした", "OK");
+                        return;
+                    }
+
+                    // APKGファイルの作成
+                    string subfolder = Path.GetFileName(Path.GetDirectoryName(ankplsFilePath));
+                    string notename = Path.GetFileNameWithoutExtension(ankplsFilePath);
+                    string deckName = $"{subfolder}::{notename}";
+                    var exporter = new AnkiExporter(tempExtractPath, cards, deckName);
+                    try
+                    {
+                        await exporter.GenerateApkg(savePath);
+                        await DisplayAlert("成功", "APKGファイルを作成しました", "OK");
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"APKGファイル生成中にエラー: {ex.Message}");
+                        await DisplayAlert("エラー", $"APKGファイルの作成に失敗しました: {ex.Message}", "OK");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"APKGエクスポート中にエラー: {ex.Message}");
+                Debug.WriteLine($"スタックトレース: {ex.StackTrace}");
+                await DisplayAlert("エラー", $"APKGファイルの作成に失敗しました: {ex.Message}", "OK");
+            }
+        }
+
+#if WINDOWS
+        private async Task<string> GetWindowsSavePath()
+        {
+            try
+            {
+                var savePicker = new FileSavePicker();
+                savePicker.SuggestedStartLocation = PickerLocationId.DocumentsLibrary;
+                savePicker.SuggestedFileName = Path.GetFileNameWithoutExtension(ankplsFilePath);
+                savePicker.FileTypeChoices.Add("APKGファイル", new List<string>() { ".apkg" });
+
+                // ウィンドウハンドルの取得と設定
+                var windowHandle = WindowNative.GetWindowHandle(Microsoft.Maui.Controls.Application.Current.Windows[0].Handler.PlatformView);
+                InitializeWithWindow.Initialize(savePicker, windowHandle);
+
+                var file = await savePicker.PickSaveFileAsync();
+                return file?.Path;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"ファイル保存ダイアログでエラー: {ex.Message}");
+                Debug.WriteLine($"スタックトレース: {ex.StackTrace}");
+                throw;
+            }
+        }
+#endif
+
+        private class CardData
+        {
+            public string type { get; set; }
+            public string front { get; set; }
+            public string back { get; set; }
+            public string question { get; set; }
+            public string explanation { get; set; }
+            public List<ChoiceData> choices { get; set; }
+            public List<SelectionRect> selectionRects { get; set; }
+        }
+
+        private class ChoiceData
+        {
+            public bool isCorrect { get; set; }
+            public string text { get; set; }
+        }
+
+        private class SelectionRect
+        {
+            public float x { get; set; }
+            public float y { get; set; }
+            public float width { get; set; }
+            public float height { get; set; }
+        }
     }
 }
+

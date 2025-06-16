@@ -21,17 +21,30 @@
 		<Nullable>enable</Nullable>
 
 		<!-- Display name -->
-		<ApplicationTitle>AnkiPlus_MAUI</ApplicationTitle>
+		<ApplicationTitle>AnkiPlus MAUI</ApplicationTitle>
 
 		<!-- App Identifier -->
-		<ApplicationId>com.companyname.ankiplus_maui</ApplicationId>
+		<ApplicationId>com.ankiplus.maui</ApplicationId>
 
-		<!-- Versions -->
-		<ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+		<!-- Versions - 自動アップデート対応 -->
+		<ApplicationDisplayVersion>1.0.0</ApplicationDisplayVersion>
 		<ApplicationVersion>1</ApplicationVersion>
+		<VersionPrefix>1.0.0</VersionPrefix>
+		<VersionSuffix Condition="'$(Configuration)' == 'Debug'">dev</VersionSuffix>
 
-		<!-- To develop, package, and publish an app to the Microsoft Store, see: https://aka.ms/MauiTemplateUnpackaged -->
-		<WindowsPackageType>None</WindowsPackageType>
+		<!-- Windows配布設定 -->
+		<WindowsPackageType>MSIX</WindowsPackageType>
+		<WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+		<PublishSingleFile>false</PublishSingleFile>
+		<SelfContained>false</SelfContained>
+		<UseAppHost>true</UseAppHost>
+
+		<!-- MSIX設定 -->
+		<PackageCertificateKeyFile Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">Package_TemporaryKey.pfx</PackageCertificateKeyFile>
+		<GenerateAppInstallerFile>false</GenerateAppInstallerFile>
+		<AppxPackageSigningEnabled>true</AppxPackageSigningEnabled>
+		<AppxBundle>Always</AppxBundle>
+		<AppxBundlePlatforms>x64</AppxBundlePlatforms>
 
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.0</SupportedOSPlatformVersion>
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.0</SupportedOSPlatformVersion>
@@ -61,8 +74,12 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="Microsoft.Maui.Controls" Version="9.0.60" />
-		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="9.0.4" />
+		<PackageReference Include="Azure.Storage.Blobs" Version="12.24.1" />
+		<PackageReference Include="FirebaseAdmin" Version="3.2.0" />
+		<PackageReference Include="FirebaseAuthentication.net" Version="4.1.0" />
+		<PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.6" />
+		<PackageReference Include="Microsoft.Maui.Controls" Version="9.0.80" />
+		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="9.0.6" />
 		<PackageReference Include="Microsoft.UI.Xaml" Version="2.8.7" />
 		<PackageReference Include="Pdfium.Net.SDK" Version="4.99.2704" />
 		<PackageReference Include="PdfiumViewer" Version="2.13.0" />
@@ -72,7 +89,10 @@
 		<PackageReference Include="SkiaSharp.Views" Version="3.119.0" />
 		<PackageReference Include="SkiaSharp.Views.Maui.Controls" Version="3.119.0" />
 		<PackageReference Include="SkiaSharp.Views.Maui.Core" Version="3.119.0" />
-		<PackageReference Include="System.Drawing.Common" Version="9.0.4" />
+		<PackageReference Include="sqlite-net-pcl" Version="1.9.172" />
+		<PackageReference Include="System.Data.SQLite.Core" Version="1.0.119" />
+		<PackageReference Include="System.Drawing.Common" Version="9.0.6" />
+		<PackageReference Include="ZstdNet" Version="1.4.5" />
 	</ItemGroup>
 
 	<ItemGroup>

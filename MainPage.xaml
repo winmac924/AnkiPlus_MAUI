@@ -12,119 +12,133 @@
         <converters:HeightConverter x:Key="HeightConverter"/>
     </ContentPage.Resources>
 
-    <Grid>
-        <StackLayout>
-            <!-- タイトルバー -->
-            <Grid Padding="10">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <Label Text="ノート"
-                       FontSize="24"
-                       VerticalOptions="Center"/>
-                <Button Text="Ankiモードへ"
-                        Grid.Column="2"
-                        VerticalOptions="Center"
-                        Clicked="OnAnkiModeClicked"
-                        Margin="0,0,10,0"/>
-                <Button Text="新規作成"
-                        Grid.Column="3"
-                        VerticalOptions="Center"
-                        Clicked="OnCreateNewNoteClicked"/>
-            </Grid>
-
-            <!-- スクロール可能なノートリスト -->
-            <ScrollView>
-                <CollectionView x:Name="NotesCollectionView"
-                                ItemsSource="{Binding Notes}"
-                                Margin="10,0"
-                                HorizontalOptions="Fill">
-                    <CollectionView.ItemsLayout>
-                        <GridItemsLayout Orientation="Vertical"
-                                         x:Name="GridLayout"
-                                         HorizontalItemSpacing="10"
-                                         VerticalItemSpacing="10"
-                                         Span="2"/>
-                    </CollectionView.ItemsLayout>
-                    <CollectionView.ItemTemplate>
-                        <DataTemplate>
-                            <Grid>
-                                <Frame Padding="0"
-                                       HasShadow="False"
-                                       CornerRadius="10"
-                                       WidthRequest="{Binding Source={x:Reference NotesCollectionView}, Path=Width, Converter={StaticResource WidthConverter}}"
-                                       HeightRequest="{Binding Source={x:Reference NotesCollectionView}, Path=Width, Converter={StaticResource HeightConverter}}"
-                                       IsEnabled="True"
-                                       BackgroundColor="Transparent"
-                                       BorderColor="Transparent"
-                                       IsVisible="{Binding IsFolder}">
-                                    <Frame.GestureRecognizers>
-                                        <TapGestureRecognizer Tapped="OnTapped"
-                                                              CommandParameter="{Binding}"/>
-                                    </Frame.GestureRecognizers>
+    <Grid RowDefinitions="Auto,*">
+        <!-- タイトルバー -->
+        <Grid Padding="10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <Button Text="Ankiモードへ"
+                    Grid.Column="2"
+                    VerticalOptions="Center"
+                    Clicked="OnAnkiModeClicked"
+                    Margin="0,0,10,0"/>
+            <Button Text="新規作成"
+                    Grid.Column="3"
+                    VerticalOptions="Center"
+                    Clicked="OnCreateNewNoteClicked"
+                    Margin="0,0,10,0"/>
+            <Button Text="同期"
+                    Grid.Column="4"
+                    VerticalOptions="Center"
+                    Clicked="OnSyncClicked"
+                    Margin="0,0,10,0"/>
+            <Button Text="ログアウト"
+                    Grid.Column="5"
+                    VerticalOptions="Center"
+                    Clicked="OnLogoutClicked"/>
+        </Grid>
+        <ScrollView Grid.Row="1">
+            <VerticalStackLayout VerticalOptions="Start">
+                <Grid>
+                    
+                    <StackLayout>
+                        <!-- スクロール可能なノートリスト -->
+                        <CollectionView x:Name="NotesCollectionView"
+                                        ItemsSource="{Binding Notes}"
+                                        Margin="10,0"
+                                        HorizontalOptions="Fill"
+                                        VerticalOptions="Start">
+                            <CollectionView.ItemsLayout>
+                                <GridItemsLayout Orientation="Vertical"
+                                                 x:Name="GridLayout"
+                                                 HorizontalItemSpacing="10"
+                                                 VerticalItemSpacing="10"
+                                                 Span="2"/>
+                            </CollectionView.ItemsLayout>
+                            <CollectionView.ItemTemplate>
+                                <DataTemplate>
                                     <Grid>
-                                        <Image Source="{Binding Icon}"
-                                               Aspect="AspectFit"
-                                               HorizontalOptions="Center"
-                                               VerticalOptions="Center"
+                                        <Frame Padding="0"
+                                               HasShadow="False"
+                                               CornerRadius="10"
                                                WidthRequest="{Binding Source={x:Reference NotesCollectionView}, Path=Width, Converter={StaticResource WidthConverter}}"
-                                               HeightRequest="{Binding Source={x:Reference NotesCollectionView}, Path=Width, Converter={StaticResource HeightConverter}}">
-                                            <Image.Behaviors>
-                                                <behaviors:FadeInBehavior/>
-                                            </Image.Behaviors>
-                                        </Image>
-                                        <Label Text="{Binding Name}"
-                                               FontSize="16"
-                                               FontAttributes="Bold"
-                                               HorizontalOptions="Center"
-                                               VerticalOptions="End"
-                                               Margin="10,0,10,30"
-                                               TextColor="Black"
-                                               LineBreakMode="NoWrap"/>
-                                    </Grid>
-                                </Frame>
+                                               HeightRequest="{Binding Source={x:Reference NotesCollectionView}, Path=Width, Converter={StaticResource HeightConverter}}"
+                                               IsEnabled="True"
+                                               BackgroundColor="Transparent"
+                                               BorderColor="Transparent"
+                                               IsVisible="{Binding IsFolder}">
+                                            <Frame.GestureRecognizers>
+                                                <TapGestureRecognizer Tapped="OnTapped"
+                                                                      CommandParameter="{Binding}"/>
+                                            </Frame.GestureRecognizers>
+                                            <Grid>
+                                                <Image Source="{Binding Icon}"
+                                                       Aspect="AspectFit"
+                                                       HorizontalOptions="Center"
+                                                       VerticalOptions="Center"
+                                                       WidthRequest="{Binding Source={x:Reference NotesCollectionView}, Path=Width, Converter={StaticResource WidthConverter}}"
+                                                       HeightRequest="{Binding Source={x:Reference NotesCollectionView}, Path=Width, Converter={StaticResource HeightConverter}}">
+                                                    <Image.Behaviors>
+                                                        <behaviors:FadeInBehavior/>
+                                                    </Image.Behaviors>
+                                                </Image>
+                                                <Label Text="{Binding Name}"
+                                                       FontSize="16"
+                                                       FontAttributes="Bold"
+                                                       HorizontalOptions="Center"
+                                                       VerticalOptions="End"
+                                                       Margin="10,0,10,30"
+                                                       TextColor="Black"
+                                                       LineBreakMode="NoWrap"/>
+                                            </Grid>
+                                        </Frame>
 
-                                <Frame Padding="0"
-                                       HasShadow="True"
-                                       CornerRadius="10"
-                                       WidthRequest="{Binding Source={x:Reference NotesCollectionView}, Path=Width, Converter={StaticResource WidthConverter}}"
-                                       HeightRequest="{Binding Source={x:Reference NotesCollectionView}, Path=Width, Converter={StaticResource HeightConverter}}"
-                                       IsEnabled="True"
-                                       BackgroundColor="White"
-                                       IsVisible="{Binding IsFolder, Converter={StaticResource InverseBoolConverter}}">
-                                    <Frame.GestureRecognizers>
-                                        <TapGestureRecognizer Tapped="OnTapped"
-                                                              CommandParameter="{Binding}"/>
-                                    </Frame.GestureRecognizers>
-                                    <Grid>
-                                        <Image Source="{Binding Icon}"
-                                               Aspect="AspectFill"
-                                               HorizontalOptions="Center"
-                                               VerticalOptions="Center"
+                                        <Frame Padding="0"
+                                               HasShadow="True"
+                                               CornerRadius="10"
                                                WidthRequest="{Binding Source={x:Reference NotesCollectionView}, Path=Width, Converter={StaticResource WidthConverter}}"
-                                               HeightRequest="{Binding Source={x:Reference NotesCollectionView}, Path=Width, Converter={StaticResource HeightConverter}}">
-                                            <Image.Behaviors>
-                                                <behaviors:FadeInBehavior/>
-                                            </Image.Behaviors>
-                                        </Image>
-                                        <Label Text="{Binding Name}"
-                                               FontSize="16"
-                                               FontAttributes="Bold"
-                                               HorizontalOptions="Center"
-                                               VerticalOptions="End"
-                                               Margin="10,0,10,30"
-                                               TextColor="Black"
-                                               LineBreakMode="NoWrap"/>
+                                               HeightRequest="{Binding Source={x:Reference NotesCollectionView}, Path=Width, Converter={StaticResource HeightConverter}}"
+                                               IsEnabled="True"
+                                               BackgroundColor="White"
+                                               IsVisible="{Binding IsFolder, Converter={StaticResource InverseBoolConverter}}">
+                                            <Frame.GestureRecognizers>
+                                                <TapGestureRecognizer Tapped="OnTapped"
+                                                                      CommandParameter="{Binding}"/>
+                                            </Frame.GestureRecognizers>
+                                            <Grid>
+                                                <Image Source="{Binding Icon}"
+                                                       Aspect="AspectFill"
+                                                       HorizontalOptions="Center"
+                                                       VerticalOptions="Center"
+                                                       WidthRequest="{Binding Source={x:Reference NotesCollectionView}, Path=Width, Converter={StaticResource WidthConverter}}"
+                                                       HeightRequest="{Binding Source={x:Reference NotesCollectionView}, Path=Width, Converter={StaticResource HeightConverter}}">
+                                                    <Image.Behaviors>
+                                                        <behaviors:FadeInBehavior/>
+                                                    </Image.Behaviors>
+                                                </Image>
+                                                <Label Text="{Binding Name}"
+                                                       FontSize="16"
+                                                       FontAttributes="Bold"
+                                                       HorizontalOptions="Center"
+                                                       VerticalOptions="End"
+                                                       Margin="10,0,10,30"
+                                                       TextColor="Black"
+                                                       LineBreakMode="NoWrap"/>
+                                            </Grid>
+                                        </Frame>
                                     </Grid>
-                                </Frame>
-                            </Grid>
-                        </DataTemplate>
-                    </CollectionView.ItemTemplate>
-                </CollectionView>
-            </ScrollView>
-        </StackLayout>
+                                </DataTemplate>
+                            </CollectionView.ItemTemplate>
+                        </CollectionView>
+                    </StackLayout>
+                </Grid>
+            </VerticalStackLayout>
+        </ScrollView>
     </Grid>
 </ContentPage>

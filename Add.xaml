@@ -35,6 +35,23 @@
                                 HeightRequest="80"
                                 Placeholder="表面の内容を入力"
                                 TextChanged="FrontOnTextChanged"/>
+                        
+                        <!-- 装飾ボタン群 -->
+                        <ScrollView Orientation="Horizontal" HorizontalScrollBarVisibility="Never">
+                                <HorizontalStackLayout Spacing="5" Padding="5">
+                                        <Button Text="太字" x:Name="FrontBoldButton" FontAttributes="Bold" WidthRequest="50" HeightRequest="35" FontSize="11" Clicked="OnBoldClicked"/>
+                                        <Button Text="赤" BackgroundColor="Red" TextColor="White" WidthRequest="40" HeightRequest="35" FontSize="12" Clicked="OnRedColorClicked"/>
+                                        <Button Text="青" BackgroundColor="Blue" TextColor="White" WidthRequest="40" HeightRequest="35" FontSize="12" Clicked="OnBlueColorClicked"/>
+                                        <Button Text="緑" BackgroundColor="Green" TextColor="White" WidthRequest="40" HeightRequest="35" FontSize="12" Clicked="OnGreenColorClicked"/>
+                                        <Button Text="黄" BackgroundColor="Yellow" TextColor="Black" WidthRequest="40" HeightRequest="35" FontSize="12" Clicked="OnYellowColorClicked"/>
+                                        <Button Text="紫" BackgroundColor="Purple" TextColor="White" WidthRequest="40" HeightRequest="35" FontSize="12" Clicked="OnPurpleColorClicked"/>
+                                        <Button Text="橙" BackgroundColor="Orange" TextColor="Black" WidthRequest="40" HeightRequest="35" FontSize="12" Clicked="OnOrangeColorClicked"/>
+                                        <Button Text="上付" WidthRequest="50" HeightRequest="35" FontSize="11" Clicked="OnSuperscriptClicked"/>
+                                        <Button Text="下付" WidthRequest="50" HeightRequest="35" FontSize="11" Clicked="OnSubscriptClicked"/>
+                                        <Button Text="穴埋" WidthRequest="50" HeightRequest="35" FontSize="11" Clicked="OnBlankClicked"/>
+                                </HorizontalStackLayout>
+                        </ScrollView>
+                        
                         <Label Text="プレビュー"
                                FontSize="16"/>
                         <WebView x:Name="FrontPreviewWebView"
@@ -51,6 +68,23 @@
                                 HeightRequest="80"
                                 Placeholder="Markdown 記法で装飾できます"
                                 TextChanged="BackOnTextChanged"/>
+                        
+                        <!-- 装飾ボタン群 -->
+                        <ScrollView Orientation="Horizontal" HorizontalScrollBarVisibility="Never">
+                                <HorizontalStackLayout Spacing="5" Padding="5">
+                                        <Button Text="太字" x:Name="BackBoldButton" FontAttributes="Bold" WidthRequest="50" HeightRequest="35" FontSize="11" Clicked="OnBoldClicked"/>
+                                        <Button Text="赤" BackgroundColor="Red" TextColor="White" WidthRequest="40" HeightRequest="35" FontSize="12" Clicked="OnRedColorClicked"/>
+                                        <Button Text="青" BackgroundColor="Blue" TextColor="White" WidthRequest="40" HeightRequest="35" FontSize="12" Clicked="OnBlueColorClicked"/>
+                                        <Button Text="緑" BackgroundColor="Green" TextColor="White" WidthRequest="40" HeightRequest="35" FontSize="12" Clicked="OnGreenColorClicked"/>
+                                        <Button Text="黄" BackgroundColor="Yellow" TextColor="Black" WidthRequest="40" HeightRequest="35" FontSize="12" Clicked="OnYellowColorClicked"/>
+                                        <Button Text="紫" BackgroundColor="Purple" TextColor="White" WidthRequest="40" HeightRequest="35" FontSize="12" Clicked="OnPurpleColorClicked"/>
+                                        <Button Text="橙" BackgroundColor="Orange" TextColor="Black" WidthRequest="40" HeightRequest="35" FontSize="12" Clicked="OnOrangeColorClicked"/>
+                                        <Button Text="上付" WidthRequest="50" HeightRequest="35" FontSize="11" Clicked="OnSuperscriptClicked"/>
+                                        <Button Text="下付" WidthRequest="50" HeightRequest="35" FontSize="11" Clicked="OnSubscriptClicked"/>
+                                        <Button Text="穴埋" WidthRequest="50" HeightRequest="35" FontSize="11" Clicked="OnBlankClicked"/>
+                                </HorizontalStackLayout>
+                        </ScrollView>
+                        
                         <Label Text="プレビュー"
                                FontSize="16"/>
                         <WebView x:Name="BackPreviewWebView"
@@ -88,12 +122,20 @@
                              IsVisible="False">
                         <Label Text="画像穴埋め"
                                FontSize="16"/>
+                        <HorizontalStackLayout Spacing="10">
                         <Button Text="画像を選択"
                                 Clicked="OnSelectImage"
-                                HorizontalOptions="Fill"/>
+                                        HorizontalOptions="FillAndExpand"/>
+                                <Button Text="画像を消去"
+                                        Clicked="OnClearImage"
+                                        BackgroundColor="Red"
+                                        TextColor="White"
+                                        HorizontalOptions="FillAndExpand"/>
+                        </HorizontalStackLayout>
                         <skia:SKCanvasView x:Name="CanvasView"
-                                           WidthRequest="{Binding Source={x:Reference Content}, Path=Width}"
+                                           WidthRequest="400"
                                            HeightRequest="300"
+                                           HorizontalOptions="Fill"
                                            IsEnabled="True"
                                            PaintSurface="OnCanvasViewPaintSurface"
                                            EnableTouchEvents="True"
@@ -101,10 +143,9 @@
                 </StackLayout>
 
                 <!-- カードを保存 -->
-                <Button Text="カードを保存"
-                        Clicked="OnSaveCardClicked"
+        <Button Text="カードを保存"
+                        Clicked="OnSaveCardButtonClicked"
                         HorizontalOptions="Fill"
                         Margin="20,10"/>
-
-        </VerticalStackLayout>
+    </VerticalStackLayout>
 </ContentPage>

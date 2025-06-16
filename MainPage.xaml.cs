@@ -7,12 +7,14 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO.Compression;
 using System.IO;
+using Firebase.Auth;
+using AnkiPlus_MAUI.Services;
+using AnkiPlus_MAUI.ViewModels;
 
 namespace AnkiPlus_MAUI
 {
     public partial class MainPage : ContentPage
     {
-        public ObservableCollection<Note> Notes { get; set; }
         private const int NoteWidth = 150; // ノート1つの幅
         private const int NoteMargin = 10;  // 各ノート間の固定間隔
         private const int PaddingSize = 10; // コレクションの左右余白
@@ -21,12 +23,16 @@ namespace AnkiPlus_MAUI
         // `C:\Users\ユーザー名\Documents\AnkiPlus` に保存
         private static readonly string FolderPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "AnkiPlus");
+        private readonly CardSyncService _cardSyncService;
+        private bool _isSyncing = false;
+        private MainPageViewModel _viewModel;
 
-        public MainPage()
+        public MainPage(CardSyncService cardSyncService)
         {
             InitializeComponent();
-            Notes = new ObservableCollection<Note>();
-            BindingContext = this;
+            _viewModel = new MainPageViewModel();
+            BindingContext = _viewModel;
+            _cardSyncService = cardSyncService;
             _currentPath.Push(FolderPath);
             LoadNotes();
 
@@ -35,6 +41,12 @@ namespace AnkiPlus_MAUI
             {
                 gridLayout.HorizontalItemSpacing = NoteMargin;
                 gridLayout.VerticalItemSpacing = NoteMargin;
+            }
+
+            // 垂直方向も上寄せに設定
+            if (NotesCollectionView != null)
+            {
+                NotesCollectionView.VerticalOptions = LayoutOptions.Start;
             }
         }
 
@@ -47,13 +59,13 @@ namespace AnkiPlus_MAUI
                 Directory.CreateDirectory(currentFolder);
             }
 
-            Notes.Clear();
+            _viewModel.Notes.Clear();
 
             // 親フォルダへ戻るボタンを追加（ルートフォルダでない場合）
             if (_currentPath.Count > 1)
             {
                 var parentDir = Path.GetDirectoryName(currentFolder);
-                Notes.Add(new Note
+                _viewModel.Notes.Add(new Note
                 {
                     Name = "..",
                     Icon = "folder.png",
@@ -100,7 +112,7 @@ namespace AnkiPlus_MAUI
             var sortedItems = items.OrderByDescending(item => item.LastModified);
             foreach (var item in sortedItems)
             {
-                Notes.Add(item);
+                _viewModel.Notes.Add(item);
             }
         }
         // タップ時の処理（スタイラス or 指/マウス）
@@ -172,10 +184,62 @@ namespace AnkiPlus_MAUI
         // ノートを保存する
         private void SaveNewNote(string noteName)
         {
+            try
+            {
+                Debug.WriteLine($"新規ノート作成開始: {noteName}");
             var currentFolder = _currentPath.Peek();
+                Debug.WriteLine($"現在のフォルダ: {currentFolder}");
+
             var filePath = Path.Combine(currentFolder, $"{noteName}.ankpls");
-            File.WriteAllText(filePath, "");
-            Notes.Insert(0, new Note { Name = noteName, Icon = "note1.png", IsFolder = false, FullPath = filePath });
+                Debug.WriteLine($"作成するファイルのパス: {filePath}");
+
+                // 一時フォルダを作成
+                var tempFolder = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "Temp",
+                    "AnkiPlus",
+                    noteName + "_temp");
+
+                if (!Directory.Exists(tempFolder))
+                {
+                    Directory.CreateDirectory(tempFolder);
+                }
+                Debug.WriteLine($"一時フォルダを作成: {tempFolder}");
+
+                // cards.txtを作成
+                var cardsFilePath = Path.Combine(tempFolder, "cards.txt");
+                File.WriteAllText(cardsFilePath, "0\n");
+                Debug.WriteLine($"cards.txtを作成: {cardsFilePath}");
+
+                // ZIPファイルを作成
+                if (File.Exists(filePath))
+                {
+                    File.Delete(filePath);
+                }
+                ZipFile.CreateFromDirectory(tempFolder, filePath);
+                Debug.WriteLine($"ZIPファイルを作成: {filePath}");
+
+                // ノートを追加
+                var newNote = new Note 
+                { 
+                    Name = noteName, 
+                    Icon = "note1.png", 
+                    IsFolder = false, 
+                    FullPath = filePath,
+                    LastModified = File.GetLastWriteTime(filePath)
+                };
+                _viewModel.Notes.Insert(0, newNote);
+                Debug.WriteLine($"ノートを追加しました: {noteName}");
+
+                // メインページを更新
+                LoadNotes();
+                Debug.WriteLine($"メインページを更新しました");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"新規ノート作成中にエラー: {ex.Message}");
+                throw;
+            }
         }
 
         private void CreateNewFolder(string folderName)
@@ -183,7 +247,7 @@ namespace AnkiPlus_MAUI
             var currentFolder = _currentPath.Peek();
             var newFolderPath = Path.Combine(currentFolder, folderName);
             Directory.CreateDirectory(newFolderPath);
-            Notes.Insert(0, new Note { Name = folderName, Icon = "folder.png", IsFolder = true, FullPath = newFolderPath });
+            _viewModel.Notes.Insert(0, new Note { Name = folderName, Icon = "folder.png", IsFolder = true, FullPath = newFolderPath });
         }
 
         private void CollectCardsFromFolder(string folderPath, List<string> cards)
@@ -373,34 +437,75 @@ namespace AnkiPlus_MAUI
                 int newSpan = Math.Max(1, (int)((effectiveWidth + NoteMargin) / (NoteWidth + NoteMargin)));
 
                 // 現在のアイテム数で必要な列数を計算
-                int itemCount = Notes?.Count ?? 0;
+                int itemCount = _viewModel.Notes?.Count ?? 0;
                 int minRequiredSpan = Math.Max(1, Math.Min(newSpan, itemCount));
 
-                // 実際に使用する幅を計算（中央寄せのため）
-                double usedWidth = (minRequiredSpan * (NoteWidth + NoteMargin)) - NoteMargin;
+                // 左上から整列するため、パディングは固定値を使用
+                double leftPadding = PaddingSize;
+                double rightPadding = PaddingSize;
+                double topPadding = PaddingSize;  // 上部のパディングも固定値
+                double bottomPadding = PaddingSize;
 
-                // 新しい左右のパディングを計算（中央寄せ）
-                double newPadding = Math.Max(PaddingSize, (width - usedWidth) / 2);
-
-                // CollectionViewのマージンを更新
-                NotesCollectionView.Margin = new Thickness(newPadding, NotesCollectionView.Margin.Top,
-                                                         newPadding, NotesCollectionView.Margin.Bottom);
+                // CollectionViewのマージンを更新（左上から整列）
+                NotesCollectionView.Margin = new Thickness(leftPadding, topPadding, rightPadding, bottomPadding);
 
                 // Spanを更新
-                if (gridLayout.Span != minRequiredSpan)
+                if (gridLayout.Span != newSpan)
                 {
-                    gridLayout.Span = minRequiredSpan;
+                    gridLayout.Span = newSpan;
                 }
             }
         }
-    }
-    public class Note
-    {
-        public string Name { get; set; }
-        public string Icon { get; set; }
-        public bool IsFolder { get; set; }
-        public string FullPath { get; set; }
-        public DateTime LastModified { get; set; }
-    }
 
+        private async void OnLogoutClicked(object sender, EventArgs e)
+        {
+            try
+            {
+                // ログイン情報を削除
+                await App.ClearLoginInfo();
+                App.CurrentUser = null;
+
+                // ログイン画面に戻る
+                await Shell.Current.GoToAsync("///LoginPage");
+            }
+            catch (Exception ex)
+            {
+                await DisplayAlert("エラー", "ログアウト中にエラーが発生しました: " + ex.Message, "OK");
+            }
+        }
+
+        private async void OnSyncClicked(object sender, EventArgs e)
+        {
+            if (_isSyncing)
+            {
+                await DisplayAlert("同期中", "現在同期処理を実行中です。完了までお待ちください。", "OK");
+                return;
+            }
+
+            try
+            {
+                _isSyncing = true;
+                var syncButton = (Button)sender;
+                syncButton.IsEnabled = false;
+                syncButton.Text = "同期中...";
+
+                var uid = App.CurrentUser.Uid;
+                await _cardSyncService.SyncAllNotesAsync(uid);
+
+                await DisplayAlert("同期完了", "すべてのノートの同期が完了しました。", "OK");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"同期中にエラー: {ex.Message}");
+                await DisplayAlert("同期エラー", "同期中にエラーが発生しました。", "OK");
+            }
+            finally
+            {
+                _isSyncing = false;
+                var syncButton = (Button)sender;
+                syncButton.IsEnabled = true;
+                syncButton.Text = "同期";
+            }
+        }
+    }
 }

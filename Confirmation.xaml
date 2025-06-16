@@ -33,10 +33,22 @@
                       HorizontalOptions="Fill"
                       Margin="20,10"/>
 
+              <!-- カードの編集ボタン -->
+              <Button Text="カードの編集"
+                      Clicked="EditCardsClicked"
+                      HorizontalOptions="Fill"
+                      Margin="20,10"/>
+
               <!-- NotePage遷移ボタン -->
               <Button x:Name="ToNoteButton"
                       Text="ノートモードへ"
                       Clicked="ToNoteClicked"
+                      HorizontalOptions="Fill"
+                      Margin="20,10"/>
+
+              <!-- Ankiにエクスポート -->
+              <Button Text="Ankiにエクスポート"
+                      Clicked="OnExportToAnkiClicked"
                       HorizontalOptions="Fill"
                       Margin="20,10"/>
 
