@@ -6,6 +6,11 @@ on:
       - 'v*'  # v1.0.0のようなタグでトリガー
   workflow_dispatch:  # 手動実行も可能
 
+# GitHub Actionsの権限設定
+permissions:
+  contents: write
+  packages: write
+
 jobs:
   build-windows:
     runs-on: windows-latest
@@ -51,23 +56,57 @@ jobs:
       run: |
         dotnet publish ${{ env.PROJECT_PATH }} -c Release -f net9.0-windows10.0.19041.0 -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:ApplicationDisplayVersion=${{ steps.get_version.outputs.VERSION }}
         
+    - name: 🔍 Debug: List Files
+      run: |
+        echo "=== Listing all files in bin directory ==="
+        Get-ChildItem -Path "bin" -Recurse | Select-Object FullName, Length
+        echo "=== End of file listing ==="
+      shell: powershell
+      
     - name: 🔍 Find Executable Files
       id: find_exe
       run: |
-        $exeFiles = Get-ChildItem -Path "bin/Release/net9.0-windows10.0.19041.0/win-x64/publish/" -Filter "*.exe" -Recurse
-        if ($exeFiles.Count -gt 0) {
-          $exePath = $exeFiles[0].FullName
-          $exeName = $exeFiles[0].Name
-          echo "EXE_PATH=$exePath" >> $env:GITHUB_OUTPUT
-          echo "EXE_NAME=$exeName" >> $env:GITHUB_OUTPUT
-          echo "Found EXE: $exePath"
-          
-          # ファイルサイズを確認
-          $fileSize = [math]::Round((Get-Item $exePath).Length / 1MB, 2)
-          echo "EXE_SIZE=$fileSize MB" >> $env:GITHUB_OUTPUT
-          echo "File size: $fileSize MB"
-        } else {
-          echo "❌ No EXE files found!"
+        # 複数のパスパターンを試す
+        $searchPaths = @(
+          "bin/Release/net9.0-windows10.0.19041.0/win-x64/publish/",
+          "bin\Release\net9.0-windows10.0.19041.0\win-x64\publish\",
+          "bin/Release/net9.0-windows10.0.19041.0/win-x64/",
+          "bin\Release\net9.0-windows10.0.19041.0\win-x64\"
+        )
+        
+        $exeFound = $false
+        foreach ($searchPath in $searchPaths) {
+          if (Test-Path $searchPath) {
+            echo "Searching in: $searchPath"
+            $exeFiles = Get-ChildItem -Path $searchPath -Filter "*.exe" -Recurse -ErrorAction SilentlyContinue
+            if ($exeFiles.Count -gt 0) {
+              $exePath = $exeFiles[0].FullName
+              $exeName = $exeFiles[0].Name
+              
+              # 相対パスに変換
+              $relativePath = $exePath -replace [regex]::Escape($PWD.Path + "\"), ""
+              $relativePath = $relativePath -replace "\\", "/"
+              
+              echo "EXE_PATH=$relativePath" >> $env:GITHUB_OUTPUT
+              echo "EXE_NAME=$exeName" >> $env:GITHUB_OUTPUT
+              echo "Found EXE: $exePath"
+              echo "Relative path: $relativePath"
+              
+              # ファイルサイズを確認
+              $fileSize = [math]::Round((Get-Item $exePath).Length / 1MB, 2)
+              echo "EXE_SIZE=$fileSize MB" >> $env:GITHUB_OUTPUT
+              echo "File size: $fileSize MB"
+              
+              $exeFound = $true
+              break
+            }
+          }
+        }
+        
+        if (-not $exeFound) {
+          echo "❌ No EXE files found in any search path!"
+          echo "Available files:"
+          Get-ChildItem -Path "bin" -Recurse -Filter "*.exe" | Select-Object FullName
           exit 1
         }
       shell: powershell
@@ -108,7 +147,7 @@ jobs:
       shell: powershell
     
     - name: 🏷️ Create GitHub Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ steps.get_version.outputs.TAG_NAME }}
         name: AnkiPlus MAUI ${{ steps.get_version.outputs.VERSION }}
@@ -117,8 +156,7 @@ jobs:
           ${{ steps.find_exe.outputs.EXE_PATH }}
         draft: false
         prerelease: ${{ contains(steps.get_version.outputs.VERSION, 'dev') || contains(steps.get_version.outputs.VERSION, 'alpha') || contains(steps.get_version.outputs.VERSION, 'beta') }}
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        token: ${{ secrets.GITHUB_TOKEN }}
         
     - name: ✅ Build Summary
       run: |
