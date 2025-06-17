@@ -24,23 +24,26 @@ $versionNumber = [int]($Version.Replace('.', ''))
 $csprojContent = $csprojContent -replace '<ApplicationVersion>.*?</ApplicationVersion>', "<ApplicationVersion>$versionNumber</ApplicationVersion>"
 Set-Content $csprojPath $csprojContent
 
-# Windows用ビルド（MSIX）
-Write-Host "Windows用MSIXパッケージをビルドしています..." -ForegroundColor Blue
-dotnet publish -f net9.0-windows10.0.19041.0 -c $Configuration -p:RuntimeIdentifierOverride=win10-x64 -p:WindowsPackageType=MSIX
+# Windows用ビルド（自己完結型EXE）
+Write-Host "Windows用実行ファイルをビルドしています..." -ForegroundColor Blue
+dotnet publish -f net9.0-windows10.0.19041.0 -c $Configuration -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
 
 # ビルド結果の確認
-$outputPath = "bin\$Configuration\net9.0-windows10.0.19041.0\win10-x64\publish\"
+$outputPath = "bin\$Configuration\net9.0-windows10.0.19041.0\win-x64\publish\"
 if (Test-Path $outputPath) {
     Write-Host "ビルドが正常に完了しました！" -ForegroundColor Green
     Write-Host "出力フォルダ: $outputPath" -ForegroundColor Yellow
     
-    # MSIXファイルの検索
-    $msixFiles = Get-ChildItem -Path $outputPath -Filter "*.msix" -Recurse
-    if ($msixFiles.Count -gt 0) {
-        Write-Host "生成されたMSIXファイル:" -ForegroundColor Green
-        foreach ($file in $msixFiles) {
-            Write-Host "  $($file.FullName)" -ForegroundColor Yellow
+    # EXEファイルの検索
+    $exeFiles = Get-ChildItem -Path $outputPath -Filter "*.exe" -Recurse
+    if ($exeFiles.Count -gt 0) {
+        Write-Host "生成された実行ファイル:" -ForegroundColor Green
+        foreach ($file in $exeFiles) {
+            $fileSize = [math]::Round($file.Length / 1MB, 2)
+            Write-Host "  $($file.FullName) ($fileSize MB)" -ForegroundColor Yellow
         }
+    } else {
+        Write-Host "⚠️ 実行ファイルが見つかりませんでした。" -ForegroundColor Yellow
     }
 } else {
     Write-Host "エラー: ビルドが失敗しました。" -ForegroundColor Red
@@ -51,8 +54,8 @@ Write-Host "リリースビルドが完了しました！" -ForegroundColor Gree
 
 # オプション: 署名の確認
 Write-Host "`n署名の確認:" -ForegroundColor Blue
-Write-Host "MSIXファイルには有効な証明書で署名することを忘れずに！" -ForegroundColor Yellow
-Write-Host "開発証明書の場合、配布前に信頼済み証明書での再署名が必要です。" -ForegroundColor Yellow
+Write-Host "実行ファイルには有効な証明書で署名することを推奨します！" -ForegroundColor Yellow
+Write-Host "署名されていない場合、初回実行時にWindows Defenderの警告が表示される可能性があります。" -ForegroundColor Yellow
 
 # GitHub関連の処理
 if ($CreateTag -or $PushToGitHub) {
