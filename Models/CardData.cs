@@ -6,6 +6,9 @@ namespace AnkiPlus_MAUI.Models
     public class CardData
     {
         public string id { get; set; }
+        public string guid { get; set; } // UUID
+        public DateTime? createdAt { get; set; } // 作成日時
+        public DateTime? modifiedAt { get; set; } // 修正日時
         public string type { get; set; }
         public string front { get; set; }
         public string back { get; set; }

@@ -33,7 +33,6 @@ public static class MauiProgram
 		builder.Services.AddTransient<LoginPage>();
 
 #if DEBUG
-		builder.Services.AddBlazorWebViewDeveloperTools();
         builder.Logging.AddDebug();
 #endif
 

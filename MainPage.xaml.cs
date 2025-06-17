@@ -10,6 +10,7 @@ using System.IO;
 using Firebase.Auth;
 using AnkiPlus_MAUI.Services;
 using AnkiPlus_MAUI.ViewModels;
+using Microsoft.Maui.Storage;
 
 namespace AnkiPlus_MAUI
 {
@@ -198,6 +199,64 @@ namespace AnkiPlus_MAUI
                 {
                     CreateNewFolder(newFolderName);
                 }
+            }
+        }
+
+        // Ankiインポートボタンのクリックイベント
+        private async void OnAnkiImportClicked(object sender, EventArgs e)
+        {
+            try
+            {
+                // APKGファイル選択
+                var customFileType = new FilePickerFileType(
+                    new Dictionary<DevicePlatform, IEnumerable<string>>
+                    {
+                        { DevicePlatform.WinUI, new[] { ".apkg" } },
+                        { DevicePlatform.macOS, new[] { "apkg" } },
+                        { DevicePlatform.Android, new[] { "application/octet-stream" } },
+                        { DevicePlatform.iOS, new[] { "public.data" } }
+                    });
+
+                var result = await FilePicker.PickAsync(new PickOptions
+                {
+                    PickerTitle = "インポートするAPKGファイルを選択",
+                    FileTypes = customFileType
+                });
+
+                if (result == null)
+                    return;
+
+                // インポート処理
+                var importer = new AnkiImporter();
+                var cards = await importer.ImportApkg(result.FullPath);
+
+                if (cards == null || cards.Count == 0)
+                {
+                    await DisplayAlert("エラー", "インポートできるカードが見つかりませんでした", "OK");
+                    return;
+                }
+
+                // ノート名を入力
+                string noteName = await DisplayPromptAsync("ノート名", $"インポートするノートの名前を入力してください\n（{cards.Count}枚のカードをインポート）", 
+                    initialValue: Path.GetFileNameWithoutExtension(result.FileName));
+
+                if (string.IsNullOrWhiteSpace(noteName))
+                    return;
+
+                // 現在のフォルダにノートを保存
+                string currentFolder = _currentPath.Peek();
+                string savedPath = await importer.SaveImportedCards(cards, currentFolder, noteName);
+
+                // ノートリストを更新
+                LoadNotes();
+
+                await DisplayAlert("成功", $"APKGファイルを正常にインポートしました\n{cards.Count}枚のカードが「{noteName}」として保存されました", "OK");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Ankiインポート中にエラー: {ex.Message}");
+                Debug.WriteLine($"スタックトレース: {ex.StackTrace}");
+                await DisplayAlert("エラー", $"Ankiファイルのインポートに失敗しました: {ex.Message}", "OK");
             }
         }
         // ノートを保存する

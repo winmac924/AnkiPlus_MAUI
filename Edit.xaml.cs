@@ -13,6 +13,7 @@ namespace AnkiPlus_MAUI
         private string tempExtractPath;
         private string ankplsFilePath;
         private List<CardInfo> cards = new List<CardInfo>();
+        private List<CardInfo> filteredCards = new List<CardInfo>(); // 検索結果用
         private string editCardId = null;    // 編集対象のカードID
         private bool isDirty = false;        // 変更があるかどうかのフラグ
         private System.Timers.Timer autoSaveTimer;  // 自動保存用タイマー
@@ -55,8 +56,8 @@ namespace AnkiPlus_MAUI
                 // テキスト変更イベントの設定
                 FrontTextEditor.TextChanged += OnTextChanged;
                 BackTextEditor.TextChanged += OnTextChanged;
-                ChoiceQuestion.TextChanged += OnTextChanged;
-                ChoiceQuestionExplanation.TextChanged += OnTextChanged;
+                ChoiceQuestion.TextChanged += OnChoiceQuestionTextChanged;
+                ChoiceQuestionExplanation.TextChanged += OnChoiceExplanationTextChanged;
 
                 // カードタイプの初期設定
                 CardTypePicker.SelectedIndex = 0;
@@ -119,8 +120,10 @@ namespace AnkiPlus_MAUI
 
                         // カードを最終更新日時の降順でソート
                         cards = cards.OrderByDescending(c => DateTime.Parse(c.LastModified)).ToList();
-                        CardsCollectionView.ItemsSource = cards;
+                        filteredCards = new List<CardInfo>(cards);
+                        CardsCollectionView.ItemsSource = filteredCards;
                         TotalCardsLabel.Text = $"カード枚数: {cards.Count}";
+                        UpdateSearchResult();
                     }
                 }
                 Debug.WriteLine("LoadCards完了");
@@ -445,6 +448,13 @@ namespace AnkiPlus_MAUI
                         ChoiceQuestion.Text = cardData.question;
                         ChoiceQuestionExplanation.Text = cardData.explanation;
                         
+                        // プレビューを初期化
+                        string questionHtml = ConvertMarkdownToHtml(cardData.question);
+                        ChoicePreviewWebView.Source = new HtmlWebViewSource { Html = questionHtml };
+                        
+                        string explanationHtml = ConvertMarkdownToHtml(cardData.explanation);
+                        ChoiceExplanationPreviewWebView.Source = new HtmlWebViewSource { Html = explanationHtml };
+                        
                         // 選択肢を設定
                         if (cardData.choices != null)
                         {
@@ -459,6 +469,10 @@ namespace AnkiPlus_MAUI
                                     HeightRequest = 40,
                                     AutoSize = EditorAutoSizeOption.TextChanges
                                 };
+
+                                // ダークモード対応
+                                editor.SetAppThemeColor(Editor.BackgroundColorProperty, Colors.White, Color.FromArgb("#2D2D30"));
+                                editor.SetAppThemeColor(Editor.TextColorProperty, Colors.Black, Colors.White);
 
                                 stack.Children.Add(checkBox);
                                 stack.Children.Add(editor);
@@ -694,6 +708,18 @@ namespace AnkiPlus_MAUI
             BackOnTextChanged(BackTextEditor, new TextChangedEventArgs("", BackTextEditor.Text));
         }
 
+        private async void ChoiceQuestionOnAddImageClicked(object sender, EventArgs e)
+        {
+            await AddImage(ChoiceQuestion);
+            OnChoiceQuestionTextChanged(ChoiceQuestion, new TextChangedEventArgs("", ChoiceQuestion.Text));
+        }
+
+        private async void ChoiceExplanationOnAddImageClicked(object sender, EventArgs e)
+        {
+            await AddImage(ChoiceQuestionExplanation);
+            OnChoiceExplanationTextChanged(ChoiceQuestionExplanation, new TextChangedEventArgs("", ChoiceQuestionExplanation.Text));
+        }
+
         private void OnAddChoice(object sender, EventArgs e)
         {
             var stack = new StackLayout { Orientation = StackOrientation.Horizontal };
@@ -704,6 +730,11 @@ namespace AnkiPlus_MAUI
                 HeightRequest = 40,
                 AutoSize = EditorAutoSizeOption.TextChanges
             };
+            
+            // ダークモード対応
+            editor.SetAppThemeColor(Editor.BackgroundColorProperty, Colors.White, Color.FromArgb("#2D2D30"));
+            editor.SetAppThemeColor(Editor.TextColorProperty, Colors.Black, Colors.White);
+            
             editor.TextChanged += OnChoiceTextChanged;
 
             stack.Children.Add(checkBox);
@@ -748,6 +779,11 @@ namespace AnkiPlus_MAUI
                             HeightRequest = 40,
                             AutoSize = EditorAutoSizeOption.TextChanges
                         };
+                        
+                        // ダークモード対応
+                        newEditor.SetAppThemeColor(Editor.BackgroundColorProperty, Colors.White, Color.FromArgb("#2D2D30"));
+                        newEditor.SetAppThemeColor(Editor.TextColorProperty, Colors.Black, Colors.White);
+                        
                         newEditor.TextChanged += OnChoiceTextChanged;
 
                         stack.Children.Add(checkBox);
@@ -809,6 +845,70 @@ namespace AnkiPlus_MAUI
                     Debug.WriteLine($"画像の読み込みでエラー: {ex.Message}");
                     await DisplayAlert("エラー", "画像の読み込みに失敗しました。", "OK");
                 }
+            }
+        }
+
+        private void OnChoiceQuestionTextChanged(object sender, TextChangedEventArgs e)
+        {
+            isDirty = true;
+            autoSaveTimer.Stop();
+            autoSaveTimer.Start();
+
+            string htmlContent = ConvertMarkdownToHtml(e.NewTextValue);
+            ChoicePreviewWebView.Source = new HtmlWebViewSource { Html = htmlContent };
+        }
+
+        private void OnChoiceExplanationTextChanged(object sender, TextChangedEventArgs e)
+        {
+            isDirty = true;
+            autoSaveTimer.Stop();
+            autoSaveTimer.Start();
+
+            string htmlContent = ConvertMarkdownToHtml(e.NewTextValue);
+            ChoiceExplanationPreviewWebView.Source = new HtmlWebViewSource { Html = htmlContent };
+        }
+
+        private void OnSearchTextChanged(object sender, TextChangedEventArgs e)
+        {
+            PerformSearch(e.NewTextValue);
+        }
+
+        private void OnClearSearchClicked(object sender, EventArgs e)
+        {
+            CardSearchBar.Text = "";
+            PerformSearch("");
+        }
+
+        private void PerformSearch(string searchText)
+        {
+            if (string.IsNullOrWhiteSpace(searchText))
+            {
+                // 検索テキストが空の場合、全てのカードを表示
+                filteredCards = new List<CardInfo>(cards);
+            }
+            else
+            {
+                // 大文字小文字を区別しない検索
+                string lowerSearchText = searchText.ToLower();
+                filteredCards = cards.Where(card =>
+                    card.FrontText.ToLower().Contains(lowerSearchText) ||
+                    (card.ImageInfo != null && card.ImageInfo.ToLower().Contains(lowerSearchText))
+                ).ToList();
+            }
+
+            CardsCollectionView.ItemsSource = filteredCards;
+            UpdateSearchResult();
+        }
+
+        private void UpdateSearchResult()
+        {
+            if (string.IsNullOrWhiteSpace(CardSearchBar.Text))
+            {
+                SearchResultLabel.Text = $"全{cards.Count}件";
+            }
+            else
+            {
+                SearchResultLabel.Text = $"{filteredCards.Count}/{cards.Count}件";
             }
         }
     }
