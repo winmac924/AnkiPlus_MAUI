@@ -56,7 +56,7 @@ jobs:
       run: |
         dotnet publish ${{ env.PROJECT_PATH }} -c Release -f net9.0-windows10.0.19041.0 -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:ApplicationDisplayVersion=${{ steps.get_version.outputs.VERSION }}
         
-    - name: 🔍 Debug: List Files
+    - name: 🔍 Debug List Files
       run: |
         echo "=== Listing all files in bin directory ==="
         Get-ChildItem -Path "bin" -Recurse | Select-Object FullName, Length
@@ -118,7 +118,7 @@ jobs:
         ## 🚀 AnkiPlus MAUI ${{ steps.get_version.outputs.VERSION }}
         
         ### 📥 インストール方法
-        1. 下記の ```.exe``` ファイルをダウンロード
+        1. 下記の .exe ファイルをダウンロード
         2. ダブルクリックして実行
         3. 必要に応じて「不明な発行元」の警告を許可
         4. インストール不要で直接実行可能（ポータブル版）
@@ -152,8 +152,7 @@ jobs:
         tag_name: ${{ steps.get_version.outputs.TAG_NAME }}
         name: AnkiPlus MAUI ${{ steps.get_version.outputs.VERSION }}
         body_path: ${{ steps.release_notes.outputs.RELEASE_NOTES_FILE }}
-        files: |
-          ${{ steps.find_exe.outputs.EXE_PATH }}
+        files: ${{ steps.find_exe.outputs.EXE_PATH }}
         draft: false
         prerelease: ${{ contains(steps.get_version.outputs.VERSION, 'dev') || contains(steps.get_version.outputs.VERSION, 'alpha') || contains(steps.get_version.outputs.VERSION, 'beta') }}
         token: ${{ secrets.GITHUB_TOKEN }}
