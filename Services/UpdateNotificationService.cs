@@ -6,6 +6,7 @@ public class UpdateNotificationService
 {
     private readonly GitHubUpdateService _updateService;
     private readonly ILogger<UpdateNotificationService> _logger;
+    private bool _isCheckingForUpdates = false;
 
     public UpdateNotificationService(GitHubUpdateService updateService, ILogger<UpdateNotificationService> logger)
     {
@@ -13,92 +14,130 @@ public class UpdateNotificationService
         _logger = logger;
     }
 
-    public async Task CheckAndNotifyUpdatesAsync()
+    public async Task CheckForUpdatesAsync()
     {
+        if (_isCheckingForUpdates)
+        {
+            _logger.LogInformation("アップデート確認が既に実行中です");
+            return;
+        }
+
         try
         {
+            _isCheckingForUpdates = true;
+            _logger.LogInformation("アップデート確認を開始します");
+
             var updateInfo = await _updateService.CheckForUpdatesAsync();
-            
-            if (updateInfo?.IsUpdateAvailable == true)
+
+            if (updateInfo == null)
             {
+                _logger.LogInformation("アップデート確認が完了しました（リリース情報なし）");
+                return;
+            }
+
+            if (updateInfo.IsUpdateAvailable)
+            {
+                _logger.LogInformation("新しいアップデートが利用可能です: {Version}", updateInfo.LatestVersion);
                 await ShowUpdateNotificationAsync(updateInfo);
+            }
+            else
+            {
+                _logger.LogInformation("アプリは最新バージョンです");
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "アップデート通知処理中にエラーが発生しました");
+            _logger.LogError(ex, "アップデート確認中にエラーが発生しました");
+        }
+        finally
+        {
+            _isCheckingForUpdates = false;
         }
     }
 
     private async Task ShowUpdateNotificationAsync(UpdateInfo updateInfo)
     {
-        var releaseDate = updateInfo.ReleaseDate?.ToString("yyyy/MM/dd") ?? "";
-        var message = $"新しいバージョン {updateInfo.LatestVersion} が利用可能です。";
-        
-        if (!string.IsNullOrEmpty(releaseDate))
+        try
         {
-            message += $"\nリリース日: {releaseDate}";
-        }
-        
-        if (!string.IsNullOrEmpty(updateInfo.ReleaseNotes))
-        {
-            // リリースノートを適度な長さに制限
-            var notes = updateInfo.ReleaseNotes.Length > 200 
-                ? updateInfo.ReleaseNotes.Substring(0, 200) + "..."
-                : updateInfo.ReleaseNotes;
-            message += $"\n\n変更内容:\n{notes}";
-        }
-        
-        message += "\n\n今すぐアップデートしますか？";
+            var title = "🚀 新しいバージョンが利用可能です";
+            var message = $"AnkiPlus MAUI {updateInfo.LatestVersion} がリリースされました。\n\n" +
+                         $"📋 更新内容:\n{updateInfo.ReleaseNotes}\n\n" +
+                         $"今すぐダウンロードしますか？";
 
-        var userResponse = await Application.Current?.MainPage?.DisplayAlert(
-            "🚀 GitHub からアップデート利用可能",
-            message,
-            "はい",
-            "後で"
-        );
+            var result = await Application.Current.MainPage.DisplayAlert(
+                title,
+                message,
+                "ダウンロード",
+                "後で"
+            );
 
-        if (userResponse == true && !string.IsNullOrEmpty(updateInfo.DownloadUrl))
+            if (result && !string.IsNullOrEmpty(updateInfo.DownloadUrl))
+            {
+                _logger.LogInformation("ユーザーがアップデートのダウンロードを選択しました");
+                await StartUpdateDownloadAsync(updateInfo);
+            }
+            else
+            {
+                _logger.LogInformation("ユーザーがアップデートを後回しにしました");
+            }
+        }
+        catch (Exception ex)
         {
-            await PerformUpdateAsync(updateInfo.DownloadUrl);
+            _logger.LogError(ex, "アップデート通知の表示中にエラーが発生しました");
         }
     }
 
-    private async Task PerformUpdateAsync(string downloadUrl)
+    private async Task StartUpdateDownloadAsync(UpdateInfo updateInfo)
     {
         try
         {
-            // プログレスバーやローディング表示を追加することも可能
-            await Application.Current?.MainPage?.DisplayAlert(
-                "アップデート中",
-                "アップデートをダウンロードしています...",
+            // ダウンロード開始の通知
+            await Application.Current.MainPage.DisplayAlert(
+                "📥 ダウンロード開始",
+                "アップデートのダウンロードを開始します。\n完了まで少々お待ちください...",
                 "OK"
             );
 
-            var success = await _updateService.DownloadAndInstallUpdateAsync(downloadUrl);
+            _logger.LogInformation("アップデートのダウンロードを開始: {Url}", updateInfo.DownloadUrl);
             
-            if (!success)
+            var success = await _updateService.DownloadAndInstallUpdateAsync(updateInfo.DownloadUrl);
+
+            if (success)
             {
-                await Application.Current?.MainPage?.DisplayAlert(
-                    "アップデートエラー",
-                    "アップデートのインストールに失敗しました。後でもう一度お試しください。",
+                await Application.Current.MainPage.DisplayAlert(
+                    "✅ ダウンロード完了",
+                    "アップデートのダウンロードが完了しました。\n新しいバージョンが起動します。",
+                    "OK"
+                );
+            }
+            else
+            {
+                await Application.Current.MainPage.DisplayAlert(
+                    "❌ ダウンロード失敗",
+                    "アップデートのダウンロードに失敗しました。\n手動でGitHubからダウンロードしてください。",
                     "OK"
                 );
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "アップデート実行中にエラーが発生しました");
+            _logger.LogError(ex, "アップデートのダウンロード中にエラーが発生しました");
+            
+            await Application.Current.MainPage.DisplayAlert(
+                "❌ エラー",
+                "アップデートのダウンロード中にエラーが発生しました。\n手動でGitHubからダウンロードしてください。",
+                "OK"
+            );
         }
     }
 
-    public async Task CheckForUpdatesOnStartupAsync()
-    {
-        // 起動時のバックグラウンドアップデートチェック
-        _ = Task.Run(async () =>
-        {
-            await Task.Delay(5000); // アプリ起動から5秒後にチェック
-            await CheckAndNotifyUpdatesAsync();
-        });
-    }
+    /// <summary>
+    /// 開発中のテスト用：アップデートチェックを無効化
+    /// </summary>
+    public static bool IsUpdateCheckEnabled => 
+#if DEBUG
+        false; // デバッグモードでは無効
+#else
+        true;  // リリースモードでは有効
+#endif
 } 

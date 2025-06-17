@@ -2,6 +2,7 @@
 using Plugin.Maui.KeyListener;
 using SkiaSharp.Views.Maui.Controls.Hosting;
 using AnkiPlus_MAUI.Services;
+using AnkiPlus_MAUI.ViewModels;
 
 namespace AnkiPlus_MAUI;
 
@@ -12,28 +13,40 @@ public static class MauiProgram
 		var builder = MauiApp.CreateBuilder();
 		builder
 			.UseMauiApp<App>()
-            .UseSkiaSharp()
-            .UseKeyListener()
+			.UseSkiaSharp()
+			.UseKeyListener()
 			.ConfigureFonts(fonts =>
 			{
 				fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
-				fonts.AddFont("OpenSans-Semibold.ttf", "OpenSansSemibold");
+				fonts.AddFont("OpenSans-Semibold.ttf", "OpenSansRegular");
 			});
 
-		builder.Services.AddSingleton<BlobStorageService>();
+		// サービスの登録
+		builder.Services.AddSingleton<ConfigurationService>();
 		builder.Services.AddSingleton<CardSyncService>();
-
-		// HTTPクライアントとGitHub Update Serviceを追加
-		builder.Services.AddHttpClient();
+		builder.Services.AddSingleton<BlobStorageService>();
+		builder.Services.AddSingleton<AnkiExporter>();
+		builder.Services.AddSingleton<AnkiImporter>();
+		
+		// HTTP Client の登録
+		builder.Services.AddHttpClient<GitHubUpdateService>();
+		
+		// アップデート関連サービス
 		builder.Services.AddSingleton<GitHubUpdateService>();
 		builder.Services.AddSingleton<UpdateNotificationService>();
-		
-		// MainPageとLoginPageをDIに登録
+
+		// ViewModels の登録
+		builder.Services.AddTransient<MainPageViewModel>();
+
+		// Pages の登録
 		builder.Services.AddTransient<MainPage>();
-		builder.Services.AddTransient<LoginPage>();
 
 #if DEBUG
-        builder.Logging.AddDebug();
+		builder.Services.AddLogging(logging =>
+		{
+			logging.AddDebug();
+		});
+		builder.Logging.AddDebug();
 #endif
 
 		return builder.Build();

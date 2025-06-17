@@ -13,15 +13,18 @@ namespace AnkiPlus_MAUI
         public static FirebaseAuthClient AuthClient { get; private set; }
         public static BlobServiceClient BlobServiceClient { get; private set; }
         private static User _currentUser;
+        private readonly ConfigurationService _configService;
+
         public static User CurrentUser 
         { 
             get => _currentUser;
             set => _currentUser = value;
         }
 
-        public App()
+        public App(ConfigurationService configService)
         {
             InitializeComponent();
+            _configService = configService;
 
             InitializeFirebase();
             InitializeAzureBlobStorage();
@@ -30,30 +33,40 @@ namespace AnkiPlus_MAUI
 
         private void InitializeFirebase()
         {
-            var config = new FirebaseAuthConfig
+            try
             {
-                ApiKey = "AIzaSyAJa6TbK4Kl--oBBPSF-QPbGwWhYhh13kg",
-                AuthDomain = "flashnote-75f1e.firebaseapp.com",
-                Providers = new FirebaseAuthProvider[]
+                var config = new FirebaseAuthConfig
                 {
-                    new EmailProvider()
-                }
-            };
+                    ApiKey = _configService.GetFirebaseApiKey(),
+                    AuthDomain = _configService.GetFirebaseAuthDomain(),
+                    Providers = new FirebaseAuthProvider[]
+                    {
+                        new EmailProvider()
+                    }
+                };
 
-            AuthClient = new FirebaseAuthClient(config);
+                AuthClient = new FirebaseAuthClient(config);
+                Debug.WriteLine("Firebase認証が初期化されました");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Firebase初期化中にエラー: {ex.Message}");
+                throw;
+            }
         }
 
         private void InitializeAzureBlobStorage()
         {
             try
             {
-                string connectionString = "DefaultEndpointsProtocol=https;AccountName=flashnote;AccountKey=iNQjjaa/klcND+6ACeug3V9APg49JJJW/1lK2UMqidcrFprG+hqJE2v55c1npFPdTwzE3I7ckyxz+AStVc7IWQ==;EndpointSuffix=core.windows.net";
+                string connectionString = _configService.GetAzureStorageConnectionString();
                 BlobServiceClient = new BlobServiceClient(connectionString);
                 Debug.WriteLine("Azure Blob Storage接続が初期化されました");
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"Azure Blob Storageの初期化中にエラー: {ex.Message}");
+                throw;
             }
         }
 

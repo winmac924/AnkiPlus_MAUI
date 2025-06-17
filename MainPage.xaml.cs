@@ -60,9 +60,16 @@ namespace AnkiPlus_MAUI
         {
             try
             {
+                // 開発中はアップデートチェックをスキップ
+                if (!UpdateNotificationService.IsUpdateCheckEnabled)
+                {
+                    Debug.WriteLine("開発モード: アップデートチェックをスキップします");
+                    return;
+                }
+
                 // ページが読み込まれた後、少し遅延してからアップデートチェックを実行
-                await Task.Delay(3000);
-                await _updateService.CheckForUpdatesOnStartupAsync();
+                await Task.Delay(5000);
+                await _updateService.CheckForUpdatesAsync();
             }
             catch (Exception ex)
             {

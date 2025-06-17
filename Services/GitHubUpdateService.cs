@@ -35,7 +35,7 @@ public class GitHubUpdateService
                 {
                     IsUpdateAvailable = true,
                     LatestVersion = latestRelease.TagName,
-                    DownloadUrl = GetMsixDownloadUrl(latestRelease),
+                    DownloadUrl = GetExeDownloadUrl(latestRelease),
                     ReleaseNotes = latestRelease.Body ?? "新しいバージョンが利用可能です",
                     ReleaseDate = latestRelease.PublishedAt
                 };
@@ -55,6 +55,8 @@ public class GitHubUpdateService
         try
         {
             var url = $"{GITHUB_API_BASE}/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest";
+            _logger.LogInformation("GitHub API リクエスト: {Url}", url);
+            
             var response = await _httpClient.GetStringAsync(url);
             
             var options = new JsonSerializerOptions
@@ -62,16 +64,29 @@ public class GitHubUpdateService
                 PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
             };
             
-            return JsonSerializer.Deserialize<GitHubRelease>(response, options);
+            var release = JsonSerializer.Deserialize<GitHubRelease>(response, options);
+            _logger.LogInformation("最新リリース取得成功: {TagName}", release?.TagName);
+            
+            return release;
+        }
+        catch (HttpRequestException ex) when (ex.Message.Contains("404"))
+        {
+            _logger.LogInformation("GitHubリポジトリにリリースがまだ作成されていません。初回リリースを作成してください。");
+            return null;
         }
         catch (HttpRequestException ex)
         {
-            _logger.LogWarning(ex, "最新リリース情報の取得に失敗しました");
+            _logger.LogWarning(ex, "GitHub API リクエストが失敗しました。ネットワーク接続またはリポジトリ設定を確認してください。");
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "予期しないエラーが発生しました");
             return null;
         }
     }
 
-    private string? GetMsixDownloadUrl(GitHubRelease release)
+    private string? GetExeDownloadUrl(GitHubRelease release)
     {
         // .exe ファイルを最優先で検索
         var exeAsset = release.Assets?.FirstOrDefault(asset => 
@@ -79,6 +94,7 @@ public class GitHubUpdateService
 
         if (exeAsset != null)
         {
+            _logger.LogInformation("EXEファイルを発見: {FileName}", exeAsset.Name);
             return exeAsset.BrowserDownloadUrl;
         }
 
@@ -88,6 +104,7 @@ public class GitHubUpdateService
 
         if (msixAsset != null)
         {
+            _logger.LogInformation("MSIXファイルを発見: {FileName}", msixAsset.Name);
             return msixAsset.BrowserDownloadUrl;
         }
 
@@ -96,7 +113,16 @@ public class GitHubUpdateService
             asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) &&
             asset.Name.Contains("windows", StringComparison.OrdinalIgnoreCase));
 
-        return zipAsset?.BrowserDownloadUrl;
+        if (zipAsset != null)
+        {
+            _logger.LogInformation("ZIPファイルを発見: {FileName}", zipAsset.Name);
+            return zipAsset.BrowserDownloadUrl;
+        }
+
+        _logger.LogWarning("ダウンロード可能なファイルが見つかりませんでした。利用可能なアセット: {Assets}", 
+            string.Join(", ", release.Assets?.Select(a => a.Name) ?? new List<string>()));
+        
+        return null;
     }
 
     private bool IsNewVersionAvailable(string currentVersion, string latestVersion)
@@ -110,7 +136,11 @@ public class GitHubUpdateService
             var current = Version.Parse(cleanCurrent);
             var latest = Version.Parse(cleanLatest);
             
-            return latest > current;
+            var isNewer = latest > current;
+            _logger.LogInformation("バージョン比較: 現在={Current}, 最新={Latest}, 新しい={IsNewer}", 
+                currentVersion, latestVersion, isNewer);
+            
+            return isNewer;
         }
         catch (Exception ex)
         {
