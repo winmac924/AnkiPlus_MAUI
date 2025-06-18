@@ -3,6 +3,7 @@ using Plugin.Maui.KeyListener;
 using SkiaSharp.Views.Maui.Controls.Hosting;
 using AnkiPlus_MAUI.Services;
 using AnkiPlus_MAUI.ViewModels;
+using System.Text;
 
 namespace AnkiPlus_MAUI;
 
@@ -10,6 +11,9 @@ public static class MauiProgram
 {
 	public static MauiApp CreateMauiApp()
 	{
+		// エンコーディングプロバイダーを登録（Shift_JIS等のサポート）
+		Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+		
 		var builder = MauiApp.CreateBuilder();
 		builder
 			.UseMauiApp<App>()

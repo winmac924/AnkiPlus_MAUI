@@ -217,18 +217,115 @@ public class GitHubUpdateService
     {
         try
         {
-            // 新しいバージョンのEXEを実行
+            _logger.LogInformation("EXEアップデートを準備中: {Path}", exePath);
+            
+            // 現在の実行ファイルのパスを取得
+            var currentExePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName;
+            if (string.IsNullOrEmpty(currentExePath))
+            {
+                _logger.LogError("現在の実行ファイルパスを取得できませんでした");
+                return false;
+            }
+
+            // ダウンロードしたファイルの存在確認
+            if (!File.Exists(exePath))
+            {
+                _logger.LogError("ダウンロードしたファイルが見つかりません: {Path}", exePath);
+                return false;
+            }
+
+            // バックアップファイル名
+            var backupPath = currentExePath + ".backup";
+            
+            // アップデート用バッチファイルを作成（英語メッセージでエンコーディング問題を回避）
+            var batchPath = Path.Combine(Path.GetTempPath(), "AnkiPlus_Update.bat");
+            var batchContent = $@"@echo off
+title AnkiPlus MAUI Update
+echo.
+echo ==========================================
+echo   AnkiPlus MAUI Update in Progress...
+echo ==========================================
+echo.
+
+REM Wait for application to completely exit
+echo Waiting for application to exit...
+timeout /t 2 /nobreak >nul
+
+REM Backup current file
+if exist ""{currentExePath}"" (
+    echo Backing up current version...
+    move ""{currentExePath}"" ""{backupPath}""
+    if errorlevel 1 (
+        echo ERROR: Failed to backup current file
+        pause
+        exit /b 1
+    )
+)
+
+REM Deploy new file
+echo Deploying new version...
+move ""{exePath}"" ""{currentExePath}""
+if errorlevel 1 (
+    echo ERROR: Failed to deploy new file
+    echo Restoring backup file...
+    move ""{backupPath}"" ""{currentExePath}""
+    pause
+    exit /b 1
+)
+
+echo Update completed! Starting new version...
+timeout /t 1 /nobreak >nul
+
+REM Start new version
+start """" ""{currentExePath}""
+
+REM Delete batch file itself
+del ""%~f0""
+";
+
+            await File.WriteAllTextAsync(batchPath, batchContent, System.Text.Encoding.UTF8);
+            _logger.LogInformation("アップデートバッチファイルを作成: {BatchPath}", batchPath);
+
+            // バッチファイルを実行
             var startInfo = new System.Diagnostics.ProcessStartInfo
             {
-                FileName = exePath,
+                FileName = batchPath,
                 UseShellExecute = true,
-                Arguments = "--update-mode" // 更新モードフラグ（必要に応じて）
+                WindowStyle = System.Diagnostics.ProcessWindowStyle.Normal, // ユーザーに進行状況を表示
+                CreateNoWindow = false
             };
             
-            System.Diagnostics.Process.Start(startInfo);
+            _logger.LogInformation("アップデート用バッチファイルを実行します");
             
-            // 現在のアプリケーションを終了
-            Application.Current?.Quit();
+            var process = System.Diagnostics.Process.Start(startInfo);
+            if (process == null)
+            {
+                _logger.LogError("バッチファイルの実行に失敗しました");
+                return false;
+            }
+            
+            _logger.LogInformation("アプリケーションを終了します");
+            
+            // 少し待ってからアプリケーションを終了
+            await Task.Delay(500);
+            
+            // UIスレッドで安全にアプリケーションを終了
+            MainThread.BeginInvokeOnMainThread(async () =>
+            {
+                try
+                {
+                    // 少し待ってから終了
+                    await Task.Delay(100);
+                    Application.Current?.Quit();
+                }
+                catch
+                {
+                    // フォールバック: 少し待ってから強制終了
+                    await Task.Delay(200);
+                    Environment.Exit(0);
+                }
+            });
+            
             return true;
         }
         catch (Exception ex)

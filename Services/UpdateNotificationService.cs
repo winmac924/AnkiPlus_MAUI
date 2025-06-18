@@ -91,30 +91,50 @@ public class UpdateNotificationService
     {
         try
         {
+            // 最終確認
+            var confirmResult = await Application.Current.MainPage.DisplayAlert(
+                "🔄 アップデート実行",
+                "アップデートを実行します。\n\n処理内容：\n1. 新しいバージョンをダウンロード\n2. アプリケーションを終了\n3. ファイルを自動更新\n4. 新しいバージョンを起動\n\n実行しますか？",
+                "実行する",
+                "キャンセル"
+            );
+
+            if (!confirmResult)
+            {
+                _logger.LogInformation("ユーザーがアップデートをキャンセルしました");
+                return;
+            }
+
             // ダウンロード開始の通知
             await Application.Current.MainPage.DisplayAlert(
-                "📥 ダウンロード開始",
-                "アップデートのダウンロードを開始します。\n完了まで少々お待ちください...",
+                "📥 ダウンロード中",
+                "新しいバージョンをダウンロード中です...\nしばらくお待ちください。",
                 "OK"
             );
 
             _logger.LogInformation("アップデートのダウンロードを開始: {Url}", updateInfo.DownloadUrl);
             
-            var success = await _updateService.DownloadAndInstallUpdateAsync(updateInfo.DownloadUrl);
+            bool success = false;
+            try
+            {
+                success = await _updateService.DownloadAndInstallUpdateAsync(updateInfo.DownloadUrl);
+            }
+            catch (Exception downloadEx)
+            {
+                _logger.LogError(downloadEx, "アップデートのダウンロード中に例外が発生しました");
+                success = false;
+            }
 
             if (success)
             {
-                await Application.Current.MainPage.DisplayAlert(
-                    "✅ ダウンロード完了",
-                    "アップデートのダウンロードが完了しました。\n新しいバージョンが起動します。",
-                    "OK"
-                );
+                // 成功の場合は、アプリが自動終了するので通知は不要
+                _logger.LogInformation("アップデート処理が正常に開始されました - アプリを終了します");
             }
             else
             {
                 await Application.Current.MainPage.DisplayAlert(
-                    "❌ ダウンロード失敗",
-                    "アップデートのダウンロードに失敗しました。\n手動でGitHubからダウンロードしてください。",
+                    "❌ アップデート失敗",
+                    "アップデートに失敗しました。\n\n手動でアップデートしてください：\n1. GitHubリリースページにアクセス\n2. 最新の .exe ファイルをダウンロード\n3. 現在のファイルを置き換え",
                     "OK"
                 );
             }
@@ -124,8 +144,8 @@ public class UpdateNotificationService
             _logger.LogError(ex, "アップデートのダウンロード中にエラーが発生しました");
             
             await Application.Current.MainPage.DisplayAlert(
-                "❌ エラー",
-                "アップデートのダウンロード中にエラーが発生しました。\n手動でGitHubからダウンロードしてください。",
+                "❌ アップデートエラー",
+                $"アップデート中にエラーが発生しました。\n\n手動でアップデートしてください：\n1. https://github.com/winmac924/AnkiPlus_MAUI/releases\n2. 最新の .exe ファイルをダウンロード\n3. 現在のファイルを置き換え\n\nエラー詳細: {ex.Message}",
                 "OK"
             );
         }
@@ -136,7 +156,7 @@ public class UpdateNotificationService
     /// </summary>
     public static bool IsUpdateCheckEnabled => 
 #if DEBUG
-        false; // デバッグモードでは無効
+        true; // デバッグモードでは無効
 #else
         true;  // リリースモードでは有効
 #endif

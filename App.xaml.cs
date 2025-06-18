@@ -26,6 +26,7 @@ namespace AnkiPlus_MAUI
             InitializeComponent();
             _configService = configService;
 
+            CleanupBackupFiles();
             InitializeFirebase();
             InitializeAzureBlobStorage();
             InitializeMainPage();
@@ -74,6 +75,46 @@ namespace AnkiPlus_MAUI
         {
             MainPage = new AppShell();
             _ = CheckSavedLoginAsync();
+        }
+
+        private void CleanupBackupFiles()
+        {
+            try
+            {
+                // 現在の実行ファイルのパスを取得
+                var currentExePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName;
+                if (string.IsNullOrEmpty(currentExePath))
+                    return;
+
+                var backupPath = currentExePath + ".backup";
+                
+                // バックアップファイルが存在する場合は削除
+                if (File.Exists(backupPath))
+                {
+                    File.Delete(backupPath);
+                    Debug.WriteLine($"バックアップファイルを削除しました: {backupPath}");
+                }
+
+                // 一時フォルダのアップデート関連ファイルもクリーンアップ
+                var tempPath = Path.GetTempPath();
+                var updateBatchFiles = Directory.GetFiles(tempPath, "AnkiPlus_Update*.bat");
+                foreach (var batchFile in updateBatchFiles)
+                {
+                    try
+                    {
+                        File.Delete(batchFile);
+                        Debug.WriteLine($"アップデートバッチファイルを削除しました: {batchFile}");
+                    }
+                    catch
+                    {
+                        // バッチファイルが実行中の場合は削除できないが、問題なし
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"バックアップファイルのクリーンアップ中にエラー: {ex.Message}");
+            }
         }
 
         public static async Task CheckForUpdatesAsync()

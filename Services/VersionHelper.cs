@@ -11,22 +11,37 @@ public static class VersionHelper
     {
         try
         {
-#if WINDOWS
-            // Windows MSIX パッケージのバージョンを取得
-            var package = Windows.ApplicationModel.Package.Current;
-            var version = package.Id.Version;
-            return $"{version.Major}.{version.Minor}.{version.Build}";
-#else
-            // 他のプラットフォーム用のフォールバック
+            // まずAssemblyからバージョンを取得（EXE形式でも動作）
             var assembly = Assembly.GetExecutingAssembly();
             var version = assembly.GetName().Version;
-            return version?.ToString(3) ?? "1.0.0";
+            
+            if (version != null)
+            {
+                return $"{version.Major}.{version.Minor}.{version.Build}";
+            }
+
+#if WINDOWS
+            try
+            {
+                // MSIXパッケージの場合のフォールバック（EXE形式では例外が発生）
+                var package = Windows.ApplicationModel.Package.Current;
+                var packageVersion = package.Id.Version;
+                return $"{packageVersion.Major}.{packageVersion.Minor}.{packageVersion.Build}";
+            }
+            catch
+            {
+                // MSIX以外（EXE形式など）の場合はAssemblyバージョンを使用
+                // この場合は既に上で取得済みなので、デフォルトにフォールバック
+            }
 #endif
+            
+            // すべて失敗した場合のデフォルトバージョン
+            return "1.1.0"; // プロジェクトファイルのApplicationDisplayVersionに合わせる
         }
         catch
         {
             // エラーが発生した場合のデフォルトバージョン
-            return "1.0.0";
+            return "1.1.0";
         }
     }
 
