@@ -78,7 +78,7 @@
 		<MauiAsset Include="Resources\Raw\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
 		
 		<!-- Configuration Files -->
-		<MauiAsset Include="appsettings.json" LogicalName="appsettings.json" />
+		<MauiAsset Include="appsettings.json" LogicalName="appsettings.json" Condition="Exists('appsettings.json')" />
 	</ItemGroup>
 
 	<ItemGroup>

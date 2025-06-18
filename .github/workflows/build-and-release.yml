@@ -29,6 +29,25 @@ jobs:
       with:
         dotnet-version: '9.0.x'
     
+    - name: 🔐 Create appsettings.json from secrets
+      run: |
+        $appsettings = @{
+          "Firebase" = @{
+            "ApiKey" = "${{ secrets.FIREBASE_API_KEY }}"
+            "AuthDomain" = "${{ secrets.FIREBASE_AUTH_DOMAIN }}"
+          }
+          "AzureStorage" = @{
+            "ConnectionString" = "${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}"
+          }
+        }
+        $appsettings | ConvertTo-Json -Depth 3 | Out-File -FilePath "appsettings.json" -Encoding UTF8
+        echo "✅ appsettings.json を作成しました"
+      shell: powershell
+      env:
+        FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
+        FIREBASE_AUTH_DOMAIN: ${{ secrets.FIREBASE_AUTH_DOMAIN }}
+        AZURE_STORAGE_CONNECTION_STRING: ${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}
+    
     - name: 🔍 Extract Version from Tag
       id: get_version
       run: |
