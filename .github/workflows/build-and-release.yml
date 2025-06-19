@@ -136,24 +136,20 @@ jobs:
         $version = "${{ steps.get_version.outputs.VERSION }}"
         $fileSize = "${{ steps.find_exe.outputs.EXE_SIZE }}"
         
-        # 固定の変更内容を使用（文字化け回避）
-        $changelogContent = @"
-        - Improved copy and paste functionality to preserve bold text and colors from source
-        - Added automatic separation of questions and choices when both are placed in the question field of multiple choice cards
-        - Performance improvements
-        - Bug fixes
-        - UI/UX enhancements
-        "@
-        
         # GitHub Outputに各要素を設定
         echo "VERSION_INFO=$version" >> $env:GITHUB_OUTPUT
         echo "FILE_SIZE_INFO=$fileSize" >> $env:GITHUB_OUTPUT
         
-        # 改行文字を適切に処理
-        $changelogContent = $changelogContent -replace "`r`n", "`n" -replace "`r", "`n"
-        echo "CHANGELOG_CONTENT<<EOF" >> $env:GITHUB_OUTPUT
-        echo $changelogContent >> $env:GITHUB_OUTPUT
-        echo "EOF" >> $env:GITHUB_OUTPUT
+        # 日本語の変更内容を直接書き込み（Here-String形式）
+        @"
+CHANGELOG_CONTENT<<EOF
+- コピー元の太字や色をそのまま貼り付けできるようになりました
+- 選択肢カードの問題文枠に問題と選択肢を一緒に入れると自動分離されるようになりました
+- パフォーマンスの改善
+- バグ修正
+- UI/UX の向上
+EOF
+"@ | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding UTF8
       shell: powershell
     
     - name: 🏷️ Create GitHub Release
