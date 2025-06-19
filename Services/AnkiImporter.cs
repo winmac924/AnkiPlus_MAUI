@@ -571,29 +571,87 @@ namespace AnkiPlus_MAUI.Services
                 Debug.WriteLine($"Front: {front}");
                 Debug.WriteLine($"Back: {back}");
 
-                // frontから番号付きリストを検出
-                var choicePattern = @"(?:^|\n)\s*(\d+)\.?\s*(.+?)(?=\n\s*\d+\.|\n\s*$|$)";
-                var matches = Regex.Matches(front, choicePattern, RegexOptions.Multiline | RegexOptions.IgnoreCase);
+                // より厳密な選択肢パターン：複数の形式に対応（全角スペース対応）
+                var choicePatterns = new[]
+                {
+                    @"(?:^|\n)\s*(\d+)[\.\．][\s　]*(.+?)(?=\n\s*\d+[\.\．]|\n\s*$|$)",      // 1. 選択肢、1．選択肢（全角スペース対応）
+                    @"(?:^|\n)\s*(\d+)[\)）][\s　]*(.+?)(?=\n\s*\d+[\)）]|\n\s*$|$)",        // 1) 選択肢、1）選択肢（全角スペース対応）
+                    @"(?:^|\n)\s*（(\d+)）[\s　]*(.+?)(?=\n\s*（\d+）|\n\s*$|$)",            // （1）選択肢（全角スペース対応）
+                    @"(?:^|\n)\s*\((\d+)\)[\s　]*(.+?)(?=\n\s*\(\d+\)|\n\s*$|$)",          // (1) 選択肢（全角スペース対応）
+                    @"(?:^|\n)\s*([０-９]+)[\.\．][\s　]*(.+?)(?=\n\s*[０-９]+[\.\．]|\n\s*$|$)", // 全角数字１．選択肢（全角スペース対応）
+                    @"(?:^|\n)\s*([０-９]+)[\：:][\s　]*(.+?)(?=\n\s*[０-９]+[\：:]|\n\s*$|$)"  // 全角数字１：選択肢（全角スペース対応）
+                };
 
-                if (matches.Count < 2)
+                List<Match> allMatches = new List<Match>();
+                string usedPattern = "";
+                
+                // 各パターンを試す
+                foreach (var pattern in choicePatterns)
+                {
+                    var matches = Regex.Matches(front, pattern, RegexOptions.Multiline | RegexOptions.IgnoreCase);
+                    if (matches.Count >= 2)
+                    {
+                        allMatches = matches.Cast<Match>().ToList();
+                        usedPattern = pattern;
+                        Debug.WriteLine($"使用されたパターン: {pattern}");
+                        break;
+                    }
+                }
+
+                if (allMatches.Count < 2)
                 {
                     Debug.WriteLine("選択肢が2個未満のため、変換をスキップ");
                     return (false, front, back, new List<ChoiceData>());
                 }
 
-                Debug.WriteLine($"検出された選択肢数: {matches.Count}");
+                Debug.WriteLine($"検出された選択肢数: {allMatches.Count}");
 
-                // 質問部分を抽出（最初の番号付きリストより前の部分）
-                var firstChoiceIndex = front.IndexOf(matches[0].Value);
+                // 質問部分を抽出（最初の選択肢より前の部分）
+                var firstChoiceIndex = front.IndexOf(allMatches[0].Value);
                 string question;
                 
                 if (firstChoiceIndex > 0)
                 {
                     question = front.Substring(0, firstChoiceIndex).Trim();
+                    
+                    // 質問が短すぎる場合（10文字未満）は選択肢カードとして扱わない
+                    if (question.Length < 10)
+                    {
+                        Debug.WriteLine($"質問が短すぎるため変換をスキップ: '{question}' (長さ: {question.Length})");
+                        return (false, front, back, new List<ChoiceData>());
+                    }
                 }
                 else
                 {
-                    // 最初から選択肢が始まる場合は、質問がない可能性
+                    // 最初から選択肢が始まる場合
+                    // テキスト全体を見て、明らかに選択肢のみの場合は変換しない
+                    var lines = front.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+                    bool allLinesAreChoices = true;
+                    
+                    foreach (var line in lines)
+                    {
+                        bool isChoice = false;
+                        foreach (var pattern in choicePatterns)
+                        {
+                            if (Regex.IsMatch(line.Trim(), pattern.Replace(@"(?:^|\n)\s*", "^").Replace(@"(?=\n\s*\d+[\.\．]|\n\s*$|$)", "$"), RegexOptions.IgnoreCase))
+                            {
+                                isChoice = true;
+                                break;
+                            }
+                        }
+                        if (!isChoice && !string.IsNullOrWhiteSpace(line))
+                        {
+                            allLinesAreChoices = false;
+                            break;
+                        }
+                    }
+                    
+                    if (allLinesAreChoices)
+                    {
+                        Debug.WriteLine("全ての行が選択肢のため、質問部分がないと判断して変換をスキップ");
+                        return (false, front, back, new List<ChoiceData>());
+                    }
+                    
                     question = "質問"; // デフォルト質問
                     Debug.WriteLine("質問部分が見つからないため、デフォルト質問を使用");
                 }
@@ -607,10 +665,13 @@ namespace AnkiPlus_MAUI.Services
 
                 // 選択肢を作成
                 var choices = new List<ChoiceData>();
-                foreach (Match match in matches)
+                foreach (Match match in allMatches)
                 {
                     var choiceNumber = match.Groups[1].Value;
                     var choiceText = match.Groups[2].Value.Trim();
+                    
+                    // 全角数字を半角に変換
+                    choiceNumber = ConvertFullWidthToHalfWidth(choiceNumber);
                     
                     choices.Add(new ChoiceData
                     {
@@ -619,6 +680,32 @@ namespace AnkiPlus_MAUI.Services
                     });
 
                     Debug.WriteLine($"選択肢{choiceNumber}: {choiceText}");
+                }
+
+                // 選択肢が連続した番号になっているかチェック
+                var numbers = allMatches.Select(m => 
+                {
+                    var num = ConvertFullWidthToHalfWidth(m.Groups[1].Value);
+                    return int.TryParse(num, out int result) ? result : -1;
+                }).Where(n => n > 0).OrderBy(n => n).ToList();
+
+                if (numbers.Count >= 2)
+                {
+                    bool isConsecutive = true;
+                    for (int i = 1; i < numbers.Count; i++)
+                    {
+                        if (numbers[i] != numbers[i - 1] + 1)
+                        {
+                            isConsecutive = false;
+                            break;
+                        }
+                    }
+                    
+                    if (!isConsecutive)
+                    {
+                        Debug.WriteLine("選択肢の番号が連続していないため、変換をスキップ");
+                        return (false, front, back, new List<ChoiceData>());
+                    }
                 }
 
                 // backから正解を推定（A.1、正解：1、答え：1 などのパターン）

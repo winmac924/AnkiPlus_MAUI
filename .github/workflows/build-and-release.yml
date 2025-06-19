@@ -136,9 +136,25 @@ jobs:
         $version = "${{ steps.get_version.outputs.VERSION }}"
         $fileSize = "${{ steps.find_exe.outputs.EXE_SIZE }}"
         
+        # CHANGELOGから最新版の変更内容を読み込み
+        $changelogContent = ""
+        if (Test-Path "CHANGELOG.md") {
+          $content = Get-Content "CHANGELOG.md" -Raw -Encoding UTF8
+          # "## 最新版の変更内容" から次の "---" までを抽出
+          if ($content -match "## 最新版の変更内容\s*\n(.*?)\n---") {
+            $changelogContent = $matches[1].Trim()
+          }
+        }
+        
+        # デフォルトの変更内容（CHANGELOGが読み込めない場合）
+        if ([string]::IsNullOrWhiteSpace($changelogContent)) {
+          $changelogContent = "- パフォーマンスの改善`n- バグ修正`n- UI/UX の向上"
+        }
+        
         # GitHub Outputに各要素を設定
         echo "VERSION_INFO=$version" >> $env:GITHUB_OUTPUT
         echo "FILE_SIZE_INFO=$fileSize" >> $env:GITHUB_OUTPUT
+        echo "CHANGELOG_CONTENT=$changelogContent" >> $env:GITHUB_OUTPUT
       shell: powershell
     
     - name: 🏷️ Create GitHub Release
@@ -148,29 +164,20 @@ jobs:
         name: AnkiPlus MAUI ${{ steps.get_version.outputs.VERSION }}
         body: |
           ## 🚀 AnkiPlus MAUI ${{ steps.release_info.outputs.VERSION_INFO }}
-          
-          ### 📥 インストール方法
-          1. 下記の `.exe` ファイルをダウンロード
-          2. ダブルクリックして実行
-          3. 必要に応じて「不明な発行元」の警告を許可
-          4. インストール不要で直接実行可能（ポータブル版）
+
           
           ### 🔄 アップデート
           - アプリ内自動アップデート機能により、新しいバージョンが自動検出されます
           - 手動でダウンロードして既存のファイルを置き換えてください
           
           ### 📋 変更内容
-          - パフォーマンスの改善
-          - バグ修正
-          - UI/UX の向上
+          ${{ steps.release_info.outputs.CHANGELOG_CONTENT }}
           
           ### 🔧 システム要件
-          - Windows 10 (バージョン 1809 以降) または Windows 11
-          - .NET Runtime不要（自己完結型実行ファイル）
+          - Windows 11(バージョン 24H2 以降)　（その他のバージョンでの動作は保証しません）
           - ファイルサイズ: 約 ${{ steps.release_info.outputs.FILE_SIZE_INFO }}
           
           ---
-          **📖 詳細な変更履歴は [Commits](${{ github.server_url }}/${{ github.repository }}/commits/${{ steps.get_version.outputs.TAG_NAME }}) をご確認ください。**
         files: ${{ steps.find_exe.outputs.EXE_PATH }}
         draft: false
         prerelease: ${{ contains(steps.get_version.outputs.VERSION, 'dev') || contains(steps.get_version.outputs.VERSION, 'alpha') || contains(steps.get_version.outputs.VERSION, 'beta') }}

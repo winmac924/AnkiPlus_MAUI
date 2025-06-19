@@ -27,6 +27,28 @@ namespace AnkiPlus_MAUI
         private bool showAnswer = false;  // 解答表示フラグ
         private string frontText = "";
 
+        // ダークモード判定プロパティ
+        private bool IsDarkMode => Application.Current?.RequestedTheme == AppTheme.Dark;
+
+        // ダークモード対応色設定
+        private struct ThemeColors
+        {
+            public static Color BackgroundColor => Application.Current?.RequestedTheme == AppTheme.Dark 
+                ? Color.FromArgb("#1E1E1E") : Color.FromArgb("#FFFFFF");
+            public static Color TextColor => Application.Current?.RequestedTheme == AppTheme.Dark 
+                ? Color.FromArgb("#FFFFFF") : Color.FromArgb("#000000");
+            public static Color BorderColor => Application.Current?.RequestedTheme == AppTheme.Dark 
+                ? Color.FromArgb("#555555") : Color.FromArgb("#CCCCCC");
+            public static Color CanvasBackground => Application.Current?.RequestedTheme == AppTheme.Dark 
+                ? Color.FromArgb("#2D2D30") : Color.FromArgb("#FFFFFF");
+            public static string HtmlBackgroundColor => Application.Current?.RequestedTheme == AppTheme.Dark 
+                ? "#1E1E1E" : "#FFFFFF";
+            public static string HtmlTextColor => Application.Current?.RequestedTheme == AppTheme.Dark 
+                ? "#FFFFFF" : "#000000";
+            public static string HtmlCodeBackground => Application.Current?.RequestedTheme == AppTheme.Dark 
+                ? "#2D2D30" : "#F5F5F5";
+        }
+
         // 新形式用のカードデータクラス
         private class CardData
         {
@@ -67,6 +89,7 @@ namespace AnkiPlus_MAUI
             tempExtractPath = tempPath;
             cardsFilePath = Path.Combine(tempExtractPath, "cards.txt");
             LoadCards();
+            InitializeTheme();
             DisplayCard();
         }
 
@@ -80,7 +103,30 @@ namespace AnkiPlus_MAUI
             // 新形式ではこのコンストラクタは使わない想定ですが、空リストで初期化
             cards = new List<CardData>();
             Debug.WriteLine($"Loaded {cards.Count} cards");
+            InitializeTheme();
             DisplayCard();
+        }
+
+        private void InitializeTheme()
+        {
+            // ページのバックグラウンドカラーを設定
+            this.BackgroundColor = ThemeColors.BackgroundColor;
+            
+            // テーマ変更イベントの監視
+            Application.Current.RequestedThemeChanged += OnRequestedThemeChanged;
+        }
+
+        private void OnRequestedThemeChanged(object sender, AppThemeChangedEventArgs e)
+        {
+            // テーマが変更された時の処理
+            this.BackgroundColor = ThemeColors.BackgroundColor;
+            
+            // 現在表示中のカードを再描画
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                DisplayCard();
+                CanvasView?.InvalidateSurface();
+            });
         }
 
         protected override void OnAppearing()
@@ -89,6 +135,17 @@ namespace AnkiPlus_MAUI
             CanvasView.InvalidateSurface();
             LoadResultsFromFile();
         }
+
+        protected override void OnDisappearing()
+        {
+            base.OnDisappearing();
+            // イベントの解除
+            if (Application.Current != null)
+            {
+                Application.Current.RequestedThemeChanged -= OnRequestedThemeChanged;
+            }
+        }
+
         // カードを読み込む
         private void LoadCards()
         {
@@ -295,7 +352,7 @@ namespace AnkiPlus_MAUI
                 Html = ConvertMarkdownToHtml(backText, showAnswer: false)
             };
 
-            BackPreviewWebView.IsVisible = false;
+            BackPreviewFrame.IsVisible = false;
         }
         // 選択肢カード表示
         private List<CheckBox> checkBoxes = new List<CheckBox>();  // チェックボックスを保持
@@ -344,7 +401,7 @@ namespace AnkiPlus_MAUI
                     Text = choiceText,
                     VerticalOptions = LayoutOptions.Center,
                     BackgroundColor = Colors.Transparent,
-                    TextColor = Colors.Black,
+                    TextColor = ThemeColors.TextColor,
                     FontSize = 16,
                     Padding = new Thickness(0),
                     Margin = new Thickness(0)
@@ -362,6 +419,7 @@ namespace AnkiPlus_MAUI
                 {
                     Text = "",
                     VerticalOptions = LayoutOptions.Center,
+                    TextColor = ThemeColors.TextColor,
                     IsVisible = false
                 };
 
@@ -378,7 +436,7 @@ namespace AnkiPlus_MAUI
             {
                 Html = ConvertMarkdownToHtml(explanation)
             };
-            ChoiceExplanationWebView.IsVisible = false;
+            ChoiceExplanationFrame.IsVisible = false;
         }
 
         private async void DisplayImageFillCard(CardData card)
@@ -454,7 +512,9 @@ namespace AnkiPlus_MAUI
             var canvas = surface.Canvas;
             var info = e.Info;
 
-            canvas.Clear(SKColors.White);
+            // ダークモード対応の背景色
+            var backgroundColor = IsDarkMode ? SKColors.Black : SKColors.White;
+            canvas.Clear(backgroundColor);
 
             if (string.IsNullOrWhiteSpace(selectedImagePath) || !File.Exists(selectedImagePath))
             {
@@ -522,10 +582,14 @@ namespace AnkiPlus_MAUI
                         
                         var displayRect = new SKRect(canvasX, canvasY, canvasX + canvasWidth, canvasY + canvasHeight);
                         
+                        // ダークモード対応の色設定
+                        var fillColor = IsDarkMode ? SKColors.DarkRed : SKColors.Red;
+                        var borderColor = IsDarkMode ? SKColors.White : SKColors.Black;
+                        
                         // 塗りつぶし用のペイント
                         using (var fillPaint = new SKPaint
                         {
-                            Color = SKColors.Red,
+                            Color = fillColor,
                             Style = SKPaintStyle.Fill
                         })
                         {
@@ -535,7 +599,7 @@ namespace AnkiPlus_MAUI
                         // 枠線表示
                         using (var borderPaint = new SKPaint
                         {
-                            Color = SKColors.Black,
+                            Color = borderColor,
                             Style = SKPaintStyle.Stroke,
                             StrokeWidth = 3
                         })
@@ -584,10 +648,11 @@ namespace AnkiPlus_MAUI
                 {
                     Html = answerFrontHtml
                 };
-                BackPreviewWebView.IsVisible = true;
+                BackPreviewFrame.IsVisible = true;
                 Correct.IsVisible = true;
                 Incorrect.IsVisible = true;
                 AnswerLine.IsVisible = true;
+                SeparatorGrid.IsVisible = true;
                 ShowAnswerButton.IsVisible = false;
             }
             else if (ChoiceCardLayout.IsVisible)
@@ -608,13 +673,13 @@ namespace AnkiPlus_MAUI
                     if (currentCorrectFlags[i])
                     {
                         resultLabel.Text = "正";
-                        resultLabel.TextColor = Colors.Green;
+                        resultLabel.TextColor = IsDarkMode ? Color.FromArgb("#90EE90") : Colors.Green;
                         resultLabel.IsVisible = true;
                     }
                     else
                     {
                         resultLabel.Text = "誤";
-                        resultLabel.TextColor = Colors.Red;
+                        resultLabel.TextColor = IsDarkMode ? Color.FromArgb("#FF6B6B") : Colors.Red;
                         resultLabel.IsVisible = true;
                     }
                 }
@@ -634,7 +699,7 @@ namespace AnkiPlus_MAUI
                 SaveResultsToFile();
 
                 // 解説を表示
-                ChoiceExplanationWebView.IsVisible = true;
+                ChoiceExplanationFrame.IsVisible = true;
 
                 // 「次へ」ボタンを表示
                 ShowAnswerButton.IsVisible = false;
@@ -647,6 +712,7 @@ namespace AnkiPlus_MAUI
                 Correct.IsVisible = true;
                 Incorrect.IsVisible = true;
                 AnswerLine.IsVisible = true;
+                SeparatorGrid.IsVisible = true;
                 ShowAnswerButton.IsVisible = false;
 
                 // 画像穴埋め問題の結果を保存
@@ -696,6 +762,7 @@ namespace AnkiPlus_MAUI
                 Correct.IsVisible = false;
                 Incorrect.IsVisible = false;
                 AnswerLine.IsVisible = false;
+                SeparatorGrid.IsVisible = false;
                 ShowAnswerButton.IsVisible = true;
                 DisplayCard();
             }
@@ -727,6 +794,7 @@ namespace AnkiPlus_MAUI
                 Correct.IsVisible = false;
                 Incorrect.IsVisible = false;
                 AnswerLine.IsVisible = false;
+                SeparatorGrid.IsVisible = false;
                 ShowAnswerButton.IsVisible = true;
                 DisplayCard();
             }
@@ -808,18 +876,25 @@ namespace AnkiPlus_MAUI
             // 太字変換
             text = Regex.Replace(text, @"\*\*(.*?)\*\*", "<b>$1</b>");
 
-            // 色変換
-            text = Regex.Replace(text, @"\{\{red\|(.*?)\}\}", "<span style='color:red;'>$1</span>");
-            text = Regex.Replace(text, @"\{\{blue\|(.*?)\}\}", "<span style='color:blue;'>$1</span>");
-            text = Regex.Replace(text, @"\{\{green\|(.*?)\}\}", "<span style='color:green;'>$1</span>");
-            text = Regex.Replace(text, @"\{\{yellow\|(.*?)\}\}", "<span style='color:yellow;'>$1</span>");
-            text = Regex.Replace(text, @"\{\{purple\|(.*?)\}\}", "<span style='color:purple;'>$1</span>");
-            text = Regex.Replace(text, @"\{\{orange\|(.*?)\}\}", "<span style='color:orange;'>$1</span>");
+            // ダークモード対応の色変換
+            var redColor = IsDarkMode ? "#FF6B6B" : "red";
+            var blueColor = IsDarkMode ? "#6BB6FF" : "blue";
+            var greenColor = IsDarkMode ? "#90EE90" : "green";
+            var yellowColor = IsDarkMode ? "#FFD700" : "yellow";
+            var purpleColor = IsDarkMode ? "#DA70D6" : "purple";
+            var orangeColor = IsDarkMode ? "#FFA500" : "orange";
+            
+            text = Regex.Replace(text, @"\{\{red\|(.*?)\}\}", $"<span style='color:{redColor};'>$1</span>");
+            text = Regex.Replace(text, @"\{\{blue\|(.*?)\}\}", $"<span style='color:{blueColor};'>$1</span>");
+            text = Regex.Replace(text, @"\{\{green\|(.*?)\}\}", $"<span style='color:{greenColor};'>$1</span>");
+            text = Regex.Replace(text, @"\{\{yellow\|(.*?)\}\}", $"<span style='color:{yellowColor};'>$1</span>");
+            text = Regex.Replace(text, @"\{\{purple\|(.*?)\}\}", $"<span style='color:{purpleColor};'>$1</span>");
+            text = Regex.Replace(text, @"\{\{orange\|(.*?)\}\}", $"<span style='color:{orangeColor};'>$1</span>");
 
             // 穴埋めの解答を赤字に変換（エスケープ後）
             if (showAnswer)
             {
-                text = Regex.Replace(text, @"\((.*?)\)", "(<span style='color:red;'>$1</span>)");
+                text = Regex.Replace(text, @"\((.*?)\)", $"(<span style='color:{redColor};'>$1</span>)");
             }
 
             // 上付き・下付き変換
@@ -832,17 +907,42 @@ namespace AnkiPlus_MAUI
             // 改行を `<br>` に変換
             text = text.Replace(Environment.NewLine, "<br>").Replace("\n", "<br>");
 
-
-            // HTML テンプレート
+            // ダークモード対応のHTMLテンプレート
             string htmlTemplate = $@"
             <html>
             <head>
                 <meta name='viewport' content='width=device-width, initial-scale=1.0'>
                 <style>
-                    body {{ font-size: 18px; font-family: Arial, sans-serif; line-height: 1.5; white-space: pre-line; }}
+                    body {{ 
+                        font-size: 18px; 
+                        font-family: Arial, sans-serif; 
+                        line-height: 1.5; 
+                        white-space: pre-line;
+                        background-color: {ThemeColors.HtmlBackgroundColor};
+                        color: {ThemeColors.HtmlTextColor};
+                        margin: 10px;
+                        padding: 10px;
+                    }}
                     sup {{ vertical-align: super; font-size: smaller; }}
                     sub {{ vertical-align: sub; font-size: smaller; }}
-                    img {{ display: block; margin: 10px 0; }}
+                    img {{ 
+                        display: block; 
+                        margin: 10px 0; 
+                        border-radius: 8px;
+                        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+                    }}
+                    code {{
+                        background-color: {ThemeColors.HtmlCodeBackground};
+                        padding: 2px 4px;
+                        border-radius: 4px;
+                        font-family: 'Courier New', monospace;
+                    }}
+                    pre {{
+                        background-color: {ThemeColors.HtmlCodeBackground};
+                        padding: 10px;
+                        border-radius: 8px;
+                        overflow-x: auto;
+                    }}
                 </style>
             </head>
             <body>{text}</body>
