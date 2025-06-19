@@ -139,17 +139,6 @@ jobs:
         # GitHub Outputに各要素を設定
         echo "VERSION_INFO=$version" >> $env:GITHUB_OUTPUT
         echo "FILE_SIZE_INFO=$fileSize" >> $env:GITHUB_OUTPUT
-        
-        # 日本語の変更内容を直接書き込み（Here-String形式）
-        @"
-CHANGELOG_CONTENT<<EOF
-- コピー元の太字や色をそのまま貼り付けできるようになりました
-- 選択肢カードの問題文枠に問題と選択肢を一緒に入れると自動分離されるようになりました
-- パフォーマンスの改善
-- バグ修正
-- UI/UX の向上
-EOF
-"@ | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding UTF8
       shell: powershell
     
     - name: 🏷️ Create GitHub Release
@@ -166,7 +155,10 @@ EOF
           - 手動でダウンロードして既存のファイルを置き換えてください
           
           ### 📋 変更内容
-          ${{ steps.release_info.outputs.CHANGELOG_CONTENT }}
+          - コピー元の太字や色をそのまま貼り付けできるようになりました
+          - 選択肢カードの問題文枠に問題と選択肢を一緒に入れると自動分離されるようになりました
+          - パフォーマンスの改善
+          - バグ修正
           
           ### 🔧 システム要件
           - Windows 11(バージョン 24H2 以降)　（その他のバージョンでの動作は保証しません）

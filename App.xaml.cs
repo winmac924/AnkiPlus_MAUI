@@ -36,17 +36,17 @@ namespace AnkiPlus_MAUI
         {
             try
             {
-                var config = new FirebaseAuthConfig
-                {
+            var config = new FirebaseAuthConfig
+            {
                     ApiKey = _configService.GetFirebaseApiKey(),
                     AuthDomain = _configService.GetFirebaseAuthDomain(),
-                    Providers = new FirebaseAuthProvider[]
-                    {
-                        new EmailProvider()
-                    }
-                };
+                Providers = new FirebaseAuthProvider[]
+                {
+                    new EmailProvider()
+                }
+            };
 
-                AuthClient = new FirebaseAuthClient(config);
+            AuthClient = new FirebaseAuthClient(config);
                 Debug.WriteLine("Firebase認証が初期化されました");
             }
             catch (Exception ex)
