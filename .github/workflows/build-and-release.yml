@@ -133,28 +133,50 @@ jobs:
     - name: 📝 Prepare Release Info
       id: release_info
       run: |
+        # PowerShellの出力エンコーディングをUTF-8に設定
+        [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+        [Console]::InputEncoding = [System.Text.Encoding]::UTF8
+        
         $version = "${{ steps.get_version.outputs.VERSION }}"
         $fileSize = "${{ steps.find_exe.outputs.EXE_SIZE }}"
         
-        # CHANGELOGから最新版の変更内容を読み込み
+        # CHANGELOGから最新版の変更内容を読み込み（英語版を優先）
         $changelogContent = ""
         if (Test-Path "CHANGELOG.md") {
-          $content = Get-Content "CHANGELOG.md" -Raw -Encoding UTF8
-          # "## 最新版の変更内容" から次の "---" までを抽出
-          if ($content -match "## 最新版の変更内容\s*\n(.*?)\n---") {
-            $changelogContent = $matches[1].Trim()
+          try {
+            # UTF-8でファイルを読み込み
+            $content = [System.IO.File]::ReadAllText("CHANGELOG.md", [System.Text.Encoding]::UTF8)
+            
+            # まず英語版を試す
+            if ($content -match "## Latest Changes \(English\)\s*\n(.*?)\n\s*---") {
+              $changelogContent = $matches[1].Trim()
+              Write-Host "English changelog content extracted successfully"
+            }
+            # 英語版がない場合、日本語版を試す
+            elseif ($content -match "## 最新版の変更内容\s*\n(.*?)\n\s*## Latest Changes") {
+              $changelogContent = $matches[1].Trim()
+              Write-Host "Japanese changelog content extracted successfully"
+            }
+          } catch {
+            Write-Host "Error reading CHANGELOG.md: $_"
           }
         }
         
         # デフォルトの変更内容（CHANGELOGが読み込めない場合）
         if ([string]::IsNullOrWhiteSpace($changelogContent)) {
-          $changelogContent = "- パフォーマンスの改善`n- バグ修正`n- UI/UX の向上"
+          $changelogContent = "- Performance improvements`n- Bug fixes`n- UI/UX enhancements"
         }
         
-        # GitHub Outputに各要素を設定
+        # GitHub Outputに各要素を設定（英語でフォールバック）
         echo "VERSION_INFO=$version" >> $env:GITHUB_OUTPUT
         echo "FILE_SIZE_INFO=$fileSize" >> $env:GITHUB_OUTPUT
-        echo "CHANGELOG_CONTENT=$changelogContent" >> $env:GITHUB_OUTPUT
+        
+        # CHANGELOGの内容を一時ファイルに保存してから読み込み
+        $tempFile = [System.IO.Path]::GetTempFileName()
+        [System.IO.File]::WriteAllText($tempFile, $changelogContent, [System.Text.Encoding]::UTF8)
+        $encodedContent = [System.IO.File]::ReadAllText($tempFile, [System.Text.Encoding]::UTF8)
+        echo "CHANGELOG_CONTENT=$encodedContent" >> $env:GITHUB_OUTPUT
+        Remove-Item $tempFile -Force
       shell: powershell
     
     - name: 🏷️ Create GitHub Release

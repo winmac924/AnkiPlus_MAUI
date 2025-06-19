@@ -6,4 +6,10 @@
 - パフォーマンスの改善
 - バグ修正
 
+## Latest Changes (English)
+- Improved copy and paste functionality to preserve bold text and colors from source.
+- Added automatic separation of questions and choices when both are placed in the question field of multiple choice cards.
+- Performance improvements
+- Bug fixes
+
 ---
