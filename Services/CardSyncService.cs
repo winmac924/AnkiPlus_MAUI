@@ -85,7 +85,20 @@ namespace AnkiPlus_MAUI.Services
         private async Task<string> ReadLocalCardsFile(string notePath)
         {
             // 一時フォルダのパスを構築
-            var tempDir = Path.Combine(_tempBasePath, Path.GetDirectoryName(notePath), Path.GetFileNameWithoutExtension(notePath) + "_temp");
+            string tempDir;
+            if (notePath.Contains(Path.DirectorySeparatorChar))
+            {
+                // サブフォルダ内のノートの場合
+                var directoryName = Path.GetDirectoryName(notePath);
+                var fileName = Path.GetFileNameWithoutExtension(notePath);
+                tempDir = Path.Combine(_tempBasePath, directoryName, fileName + "_temp");
+            }
+            else
+            {
+                // ルートのノートの場合
+                tempDir = Path.Combine(_tempBasePath, notePath + "_temp");
+            }
+            
             var cardsPath = Path.Combine(tempDir, "cards.txt");
             Debug.WriteLine($"読み込みファイルのパス: {cardsPath}");
 
@@ -105,23 +118,49 @@ namespace AnkiPlus_MAUI.Services
                 var notePath = Path.Combine(userPath, noteName);
 
                 Debug.WriteLine($"=== ノート同期開始 ===");
-                Debug.WriteLine($"同期開始 - パス: {notePath}");
+                Debug.WriteLine($"同期開始 - UID: {uid}, ノート名: {noteName}, サブフォルダ: {subFolder ?? "なし"}");
+                Debug.WriteLine($"ユーザーパス: {userPath}");
+                Debug.WriteLine($"ノートパス: {notePath}");
 
                 // サーバーとローカルのcards.txtを取得
                 var serverContent = await _blobStorageService.GetNoteContentAsync(uid, noteName, subFolder);
                 Debug.WriteLine($"サーバーコンテンツ取得: {(serverContent != null ? "成功" : "失敗")}");
+                if (serverContent != null)
+                {
+                    Debug.WriteLine($"サーバーコンテンツサイズ: {serverContent.Length} 文字");
+                }
                 
                 var localContent = await ReadLocalCardsFile(subFolder != null ? Path.Combine(subFolder, noteName) : noteName);
                 Debug.WriteLine($"ローカルコンテンツ取得: {(localContent != null ? "成功" : "失敗")}");
-                Debug.WriteLine($"ローカルのcards.txtの内容:");
-                Debug.WriteLine(localContent);
+                if (localContent != null)
+                {
+                    Debug.WriteLine($"ローカルコンテンツサイズ: {localContent.Length} 文字");
+                    Debug.WriteLine($"ローカルのcards.txtの内容:");
+                    Debug.WriteLine(localContent);
+                }
 
                 // 一時ディレクトリの準備
-                var tempDir = Path.Combine(_tempBasePath, subFolder ?? "", noteName + "_temp");
+                string tempDir;
+                if (!string.IsNullOrEmpty(subFolder))
+                {
+                    // サブフォルダ内のノートの場合
+                    tempDir = Path.Combine(_tempBasePath, subFolder, noteName + "_temp");
+                }
+                else
+                {
+                    // ルートのノートの場合
+                    tempDir = Path.Combine(_tempBasePath, noteName + "_temp");
+                }
+                
+                Debug.WriteLine($"一時ディレクトリパス: {tempDir}");
                 if (!Directory.Exists(tempDir))
                 {
                     Directory.CreateDirectory(tempDir);
                     Debug.WriteLine($"一時ディレクトリを作成: {tempDir}");
+                }
+                else
+                {
+                    Debug.WriteLine($"一時ディレクトリは既に存在: {tempDir}");
                 }
 
                 // ローカルにcards.txtがない場合、サーバーから全てダウンロード
@@ -138,7 +177,19 @@ namespace AnkiPlus_MAUI.Services
                     // カードファイルをダウンロード
                     foreach (var card in serverCardsToDownload)
                     {
-                        var cardContent = await _blobStorageService.GetNoteContentAsync(uid, $"{card.Uuid}.json", $"{subFolder}/{noteName}/cards");
+                        string cardPath;
+                        if (!string.IsNullOrEmpty(subFolder))
+                        {
+                            // サブフォルダ内のノートの場合
+                            cardPath = $"{subFolder}/{noteName}/cards";
+                        }
+                        else
+                        {
+                            // ルートのノートの場合
+                            cardPath = $"{noteName}/cards";
+                        }
+                        
+                        var cardContent = await _blobStorageService.GetNoteContentAsync(uid, $"{card.Uuid}.json", cardPath);
                         if (cardContent != null)
                         {
                             var tempCardPath = Path.Combine(tempDir, "cards", $"{card.Uuid}.json");
@@ -166,7 +217,19 @@ namespace AnkiPlus_MAUI.Services
                     }
 
                     // imgフォルダ内のファイル一覧を取得
-                    var imgFiles = await _blobStorageService.GetNoteListAsync(uid, $"{subFolder}/{noteName}/img");
+                    string imgPath;
+                    if (!string.IsNullOrEmpty(subFolder))
+                    {
+                        // サブフォルダ内のノートの場合
+                        imgPath = $"{subFolder}/{noteName}/img";
+                    }
+                    else
+                    {
+                        // ルートのノートの場合
+                        imgPath = $"{noteName}/img";
+                    }
+                    
+                    var imgFiles = await _blobStorageService.GetNoteListAsync(uid, imgPath);
                     Debug.WriteLine($"サーバーの画像ファイル数: {imgFiles.Count}");
                     Debug.WriteLine($"サーバーの画像ファイル一覧:");
                     foreach (var imgFile in imgFiles)
@@ -178,29 +241,29 @@ namespace AnkiPlus_MAUI.Services
                     {
                         // iOS版の形式（img_########_######.jpg）をチェック
                         if (Regex.IsMatch(imgFile, @"^img_\d{8}_\d{6}\.jpg$"))
-                    {
-                        Debug.WriteLine($"画像ファイルの処理開始: {imgFile}");
-                        var imgFileContent = await _blobStorageService.GetNoteContentAsync(uid, imgFile, $"{subFolder}/{noteName}/img");
-                        if (imgFileContent != null)
+                        {
+                            Debug.WriteLine($"画像ファイルの処理開始: {imgFile}");
+                            var imgFileContent = await _blobStorageService.GetNoteContentAsync(uid, imgFile, imgPath);
+                            if (imgFileContent != null)
                             {
                                 try
-                        {
-                            var tempImgPath = Path.Combine(tempImgDir, imgFile);
+                                {
+                                    var tempImgPath = Path.Combine(tempImgDir, imgFile);
                                     Debug.WriteLine($"画像ファイルの保存先: {tempImgPath}");
                                     var imgBytes = Convert.FromBase64String(imgFileContent);
                                     Debug.WriteLine($"画像ファイルのサイズ: {imgBytes.Length} バイト");
                                     await File.WriteAllBytesAsync(tempImgPath, imgBytes);
-                            Debug.WriteLine($"画像ファイルを一時フォルダにダウンロード: {tempImgPath}");
+                                    Debug.WriteLine($"画像ファイルを一時フォルダにダウンロード: {tempImgPath}");
                                 }
                                 catch (Exception ex)
                                 {
                                     Debug.WriteLine($"画像ファイルのダウンロード中にエラー: {imgFile}, エラー: {ex.Message}");
                                     Debug.WriteLine($"スタックトレース: {ex.StackTrace}");
                                 }
-                        }
-                        else
-                        {
-                            Debug.WriteLine($"画像ファイルのコンテンツが取得できません: {imgFile}");
+                            }
+                            else
+                            {
+                                Debug.WriteLine($"画像ファイルのコンテンツが取得できません: {imgFile}");
                             }
                         }
                     }
@@ -288,7 +351,9 @@ namespace AnkiPlus_MAUI.Services
                         }
                         else if (localCard.LastModified > serverCard.LastModified)
                         {
-                            Debug.WriteLine($"ローカルが新しいためスキップ: {serverCard.Uuid} (ローカル={localCard.LastModified}, サーバー={serverCard.LastModified})");
+                            // ローカルが新しい場合、アップロード対象に追加
+                            cardsToUpload.Add(localCard);
+                            Debug.WriteLine($"ローカルが新しいためアップロード対象に追加: {serverCard.Uuid} (ローカル={localCard.LastModified}, サーバー={serverCard.LastModified})");
                         }
                         else
                         {
@@ -324,7 +389,19 @@ namespace AnkiPlus_MAUI.Services
                         Debug.WriteLine($"ダウンロードするカード数: {cardsToDownload.Count}");
                         foreach (var card in cardsToDownload)
                         {
-                            var cardContent = await _blobStorageService.GetNoteContentAsync(uid, $"{card.Uuid}.json", $"{subFolder}/{noteName}/cards");
+                            string cardPath;
+                            if (!string.IsNullOrEmpty(subFolder))
+                            {
+                                // サブフォルダ内のノートの場合
+                                cardPath = $"{subFolder}/{noteName}/cards";
+                            }
+                            else
+                            {
+                                // ルートのノートの場合
+                                cardPath = $"{noteName}/cards";
+                            }
+                            
+                            var cardContent = await _blobStorageService.GetNoteContentAsync(uid, $"{card.Uuid}.json", cardPath);
                             if (cardContent != null)
                             {
                                 var tempCardPath = Path.Combine(tempDir, "cards", $"{card.Uuid}.json");
@@ -337,19 +414,19 @@ namespace AnkiPlus_MAUI.Services
                                 await File.WriteAllTextAsync(tempCardPath, cardContent);
                                 Debug.WriteLine($"カードファイルを一時フォルダにダウンロード: {tempCardPath}");
                             }
-                            }
                         }
+                    }
 
                     // imgフォルダの同期（カードの同期とは独立して実行）
-                        var tempImgDir = Path.Combine(tempDir, "img");
+                    var tempImgDir = Path.Combine(tempDir, "img");
                     Debug.WriteLine($"=== 画像同期処理開始（ローカルにcards.txt存在時） ===");
                     Debug.WriteLine($"一時画像フォルダのパス: {tempImgDir}");
 
-                        if (!Directory.Exists(tempImgDir))
-                        {
-                            Directory.CreateDirectory(tempImgDir);
-                            Debug.WriteLine($"一時imgディレクトリを作成: {tempImgDir}");
-                        }
+                    if (!Directory.Exists(tempImgDir))
+                    {
+                        Directory.CreateDirectory(tempImgDir);
+                        Debug.WriteLine($"一時imgディレクトリを作成: {tempImgDir}");
+                    }
 
                     // ローカルのimgフォルダのパスを取得
                     var localCardsPath = Path.Combine(_tempBasePath, subFolder ?? "", noteName + "_temp", "cards.txt");
@@ -378,7 +455,20 @@ namespace AnkiPlus_MAUI.Services
                                     Debug.WriteLine($"画像ファイルの処理開始: {fileName}");
                                     var imgBytes = await File.ReadAllBytesAsync(imgFile);
                                     Debug.WriteLine($"画像ファイルのサイズ: {imgBytes.Length} バイト");
-                                    await _blobStorageService.UploadImageBinaryAsync(uid, fileName, imgBytes, $"{subFolder}/{noteName}/img");
+                                    
+                                    string imgPath;
+                                    if (!string.IsNullOrEmpty(subFolder))
+                                    {
+                                        // サブフォルダ内のノートの場合
+                                        imgPath = $"{subFolder}/{noteName}/img";
+                                    }
+                                    else
+                                    {
+                                        // ルートのノートの場合
+                                        imgPath = $"{noteName}/img";
+                                    }
+                                    
+                                    await _blobStorageService.UploadImageBinaryAsync(uid, fileName, imgBytes, imgPath);
                                     Debug.WriteLine($"画像ファイルをアップロード: {fileName}");
 
                                     // 一時フォルダにもコピー
@@ -418,13 +508,13 @@ namespace AnkiPlus_MAUI.Services
                             if (imgFileContent != null)
                             {
                                 try
-                            {
-                                var tempImgPath = Path.Combine(tempImgDir, imgFile);
+                                {
+                                    var tempImgPath = Path.Combine(tempImgDir, imgFile);
                                     Debug.WriteLine($"画像ファイルの保存先: {tempImgPath}");
                                     var imgBytes = Convert.FromBase64String(imgFileContent);
                                     Debug.WriteLine($"画像ファイルのサイズ: {imgBytes.Length} バイト");
                                     await File.WriteAllBytesAsync(tempImgPath, imgBytes);
-                                Debug.WriteLine($"画像ファイルを一時フォルダにダウンロード: {tempImgPath}");
+                                    Debug.WriteLine($"画像ファイルを一時フォルダにダウンロード: {tempImgPath}");
                                 }
                                 catch (Exception ex)
                                 {
@@ -453,8 +543,21 @@ namespace AnkiPlus_MAUI.Services
                             if (File.Exists(localCardPath))
                             {
                                 var cardContent = await File.ReadAllTextAsync(localCardPath);
+                                
                                 // カードのJSONファイルを直接アップロード
-                                await _blobStorageService.SaveNoteAsync(uid, $"{card.Uuid}.json", cardContent, $"{subFolder}/{noteName}/cards");
+                                string cardPath;
+                                if (!string.IsNullOrEmpty(subFolder))
+                                {
+                                    // サブフォルダ内のノートの場合
+                                    cardPath = $"{subFolder}/{noteName}/cards";
+                                }
+                                else
+                                {
+                                    // ルートのノートの場合
+                                    cardPath = $"{noteName}/cards";
+                                }
+                                
+                                await _blobStorageService.SaveNoteAsync(uid, $"{card.Uuid}.json", cardContent, cardPath);
                                 Debug.WriteLine($"カードファイルをアップロード: {localCardPath}");
                             }
                             else
@@ -464,8 +567,8 @@ namespace AnkiPlus_MAUI.Services
                         }
 
                         // ローカルのcards.txtをサーバーにアップロード
-                        var newContent = string.Join("\n", localCards.Select(c => $"{c.Uuid},{c.LastModified:yyyy-MM-dd HH:mm:ss}"));
-                        var contentWithCount = $"{localCards.Count}\n{newContent}";
+                        var newContent = string.Join("\n", updatedLocalCards.Select(c => $"{c.Uuid},{c.LastModified:yyyy-MM-dd HH:mm:ss}"));
+                        var contentWithCount = $"{updatedLocalCards.Count}\n{newContent}";
                         await _blobStorageService.SaveNoteAsync(uid, noteName, contentWithCount, subFolder);
                         Debug.WriteLine($"サーバーにcards.txtをアップロード（カードのアップロード時）");
                     }
@@ -501,7 +604,19 @@ namespace AnkiPlus_MAUI.Services
                         Debug.WriteLine($"画像ディレクトリを作成: {imgDir}");
                     }
 
-                    var imgFiles = await _blobStorageService.GetNoteListAsync(uid, $"{subFolder}/{noteName}/img");
+                    string imgSyncPath;
+                    if (!string.IsNullOrEmpty(subFolder))
+                    {
+                        // サブフォルダ内のノートの場合
+                        imgSyncPath = $"{subFolder}/{noteName}/img";
+                    }
+                    else
+                    {
+                        // ルートのノートの場合
+                        imgSyncPath = $"{noteName}/img";
+                    }
+                    
+                    var imgFiles = await _blobStorageService.GetNoteListAsync(uid, imgSyncPath);
                     foreach (var imgFile in imgFiles)
                     {
                         if (Regex.IsMatch(imgFile, @"^img_\d{8}_\d{6}\.jpg$"))
@@ -509,7 +624,7 @@ namespace AnkiPlus_MAUI.Services
                             var imgPath = Path.Combine(imgDir, imgFile);
                             if (!File.Exists(imgPath))
                             {
-                                var imgContent = await _blobStorageService.GetNoteContentAsync(uid, $"{subFolder}/{noteName}/img", imgFile);
+                                var imgContent = await _blobStorageService.GetNoteContentAsync(uid, imgFile, imgSyncPath);
                                 if (imgContent != null)
                                 {
                                     try
@@ -628,9 +743,9 @@ namespace AnkiPlus_MAUI.Services
                         }
                         
                         Debug.WriteLine($"共有ノート同期完了: {noteName}");
-            }
-            catch (Exception ex)
-            {
+                    }
+                    catch (Exception ex)
+                    {
                         Debug.WriteLine($"共有ノート同期中にエラー: {noteName}, エラー: {ex.Message}");
                         // 個別のノートでエラーが発生しても他のノートの同期は続行
                     }
@@ -702,25 +817,32 @@ namespace AnkiPlus_MAUI.Services
                     Debug.WriteLine($"一時フォルダにcards.txtを保存: {localCardsPath}");
 
                     // カードファイルをダウンロード
-                    var cardsDir = Path.Combine(tempDir, "cards");
-                    if (!Directory.Exists(cardsDir))
-                    {
-                        Directory.CreateDirectory(cardsDir);
-                        Debug.WriteLine($"カードディレクトリを作成: {cardsDir}");
-                    }
-
                     foreach (var card in serverCardsToDownload)
                     {
-                        var cardContent = await _blobStorageService.GetSharedNoteFileAsync(originalUserId, $"{notePath}/cards", $"{card.Uuid}.json");
-                        if (cardContent != null)
+                        string cardPath;
+                        if (!string.IsNullOrEmpty(subFolder))
                         {
-                            var cardPath = Path.Combine(cardsDir, $"{card.Uuid}.json");
-                            await File.WriteAllTextAsync(cardPath, cardContent);
-                            Debug.WriteLine($"カードファイルをダウンロード: {card.Uuid}");
+                            // サブフォルダ内のノートの場合
+                            cardPath = $"{subFolder}/{noteName}/cards";
                         }
                         else
                         {
-                            Debug.WriteLine($"カードファイルが見つかりません: {card.Uuid}");
+                            // ルートのノートの場合
+                            cardPath = $"{noteName}/cards";
+                        }
+                        
+                        var cardContent = await _blobStorageService.GetNoteContentAsync(originalUserId, $"{card.Uuid}.json", cardPath);
+                        if (cardContent != null)
+                        {
+                            var tempCardPath = Path.Combine(tempDir, "cards", $"{card.Uuid}.json");
+                            var tempCardDir = Path.GetDirectoryName(tempCardPath);
+                            if (!Directory.Exists(tempCardDir))
+                            {
+                                Directory.CreateDirectory(tempCardDir);
+                                Debug.WriteLine($"一時カードディレクトリを作成: {tempCardDir}");
+                            }
+                            await File.WriteAllTextAsync(tempCardPath, cardContent);
+                            Debug.WriteLine($"カードファイルを一時フォルダにダウンロード: {tempCardPath}");
                         }
                     }
 
@@ -836,8 +958,9 @@ namespace AnkiPlus_MAUI.Services
                         }
                         else if (localCard.LastModified > serverCard.LastModified)
                         {
+                            // ローカルが新しい場合、アップロード対象に追加
                             cardsToUpload.Add(localCard);
-                            Debug.WriteLine($"アップロード対象カード: {serverCard.Uuid} (ローカル={localCard.LastModified}, サーバー={serverCard.LastModified})");
+                            Debug.WriteLine($"ローカルが新しいためアップロード対象に追加: {serverCard.Uuid} (ローカル={localCard.LastModified}, サーバー={serverCard.LastModified})");
                         }
                         else
                         {
@@ -1059,7 +1182,45 @@ namespace AnkiPlus_MAUI.Services
 
                 // 1. サーバーとローカル両方にあるノートの同期
                 Debug.WriteLine("1. 両方にあるノートの同期開始");
-                var serverNotes = await _blobStorageService.GetNoteListAsync(uid);
+                
+                // サーバーのノート一覧を取得（ルートとサブフォルダを含む）
+                var allServerNotes = new List<(string noteName, string subFolder)>();
+                
+                // ルートのノートを取得
+                var rootServerNotes = await _blobStorageService.GetNoteListAsync(uid);
+                foreach (var serverNote in rootServerNotes)
+                {
+                    if (!sharedNoteNames.Contains(serverNote))
+                    {
+                        allServerNotes.Add((serverNote, null));
+                        Debug.WriteLine($"ルートのサーバーノートを追加: {serverNote}");
+                    }
+                }
+                
+                // サブフォルダのノートを取得
+                var subFolders = await _blobStorageService.GetSubFoldersAsync(uid);
+                Debug.WriteLine($"取得したサブフォルダ: {string.Join(", ", subFolders)}");
+                
+                foreach (var subFolder in subFolders)
+                {
+                    var subFolderNotes = await _blobStorageService.GetNoteListAsync(uid, subFolder);
+                    foreach (var noteName in subFolderNotes)
+                    {
+                        var fullNotePath = $"{subFolder}/{noteName}";
+                        if (!sharedNoteNames.Contains(noteName) && !sharedNoteNames.Contains(fullNotePath))
+                        {
+                            allServerNotes.Add((noteName, subFolder));
+                            Debug.WriteLine($"サブフォルダのサーバーノートを追加: {subFolder}/{noteName}");
+                        }
+                    }
+                }
+                
+                Debug.WriteLine($"全サーバーノート数: {allServerNotes.Count}");
+                foreach (var (noteName, subFolder) in allServerNotes)
+                {
+                    Debug.WriteLine($"  - {noteName} (サブフォルダ: {subFolder ?? "ルート"})");
+                }
+                
                 var localNotes = new List<(string subFolder, string noteName, string cardsPath)>();
                 var tempNotes = new List<(string subFolder, string noteName, string cardsPath)>();
 
@@ -1174,49 +1335,54 @@ namespace AnkiPlus_MAUI.Services
 
                 Debug.WriteLine($"収集したローカルノート数: {localNotes.Count}");
                 Debug.WriteLine($"収集したtempノート数: {tempNotes.Count}");
-                Debug.WriteLine($"サーバーノート数: {serverNotes.Count}");
+                Debug.WriteLine($"サーバーノート数: {allServerNotes.Count}");
 
                 // 両方にあるノートの同期（共有ノートは除外）
-                foreach (var serverNote in serverNotes)
+                foreach (var (noteName, subFolder) in allServerNotes)
                 {
                     // 共有ノートは除外
-                    if (sharedNoteNames.Contains(serverNote))
+                    if (sharedNoteNames.Contains(noteName))
                     {
-                        Debug.WriteLine($"サーバーの共有ノートを同期から除外: {serverNote}");
+                        Debug.WriteLine($"サーバーの共有ノートを同期から除外: {noteName}");
                         continue;
                     }
                     
-                    var localNote = localNotes.FirstOrDefault(n => n.noteName == serverNote);
-                    var tempNote = tempNotes.FirstOrDefault(n => n.noteName == serverNote);
+                    var localNote = localNotes.FirstOrDefault(n => n.noteName == noteName && n.subFolder == subFolder);
+                    var tempNote = tempNotes.FirstOrDefault(n => n.noteName == noteName && n.subFolder == subFolder);
 
                     if (localNote.noteName != null || tempNote.noteName != null)
                     {
-                        Debug.WriteLine($"両方にあるノートを同期: {serverNote}");
-                        await SyncNoteAsync(uid, serverNote, localNote.subFolder ?? tempNote.subFolder);
+                        Debug.WriteLine($"両方にあるノートを同期: {noteName}");
+                        await SyncNoteAsync(uid, noteName, subFolder);
                     }
                 }
 
                 // 2. サーバーにのみあるノートのダウンロード（共有ノートは除外）
                 Debug.WriteLine("2. サーバーにのみあるノートのダウンロード開始");
-                foreach (var serverNote in serverNotes)
+                
+                foreach (var (noteName, subFolder) in allServerNotes)
                 {
                     // 共有ノートは除外
-                    if (sharedNoteNames.Contains(serverNote))
+                    if (sharedNoteNames.Contains(noteName))
                     {
-                        Debug.WriteLine($"サーバーの共有ノートをダウンロードから除外: {serverNote}");
+                        Debug.WriteLine($"サーバーの共有ノートをダウンロードから除外: {noteName}");
                         continue;
                     }
                     
-                    if (!localNotes.Any(n => n.noteName == serverNote) && !tempNotes.Any(n => n.noteName == serverNote))
+                    // ローカルに存在するかチェック
+                    var existsLocally = localNotes.Any(n => n.noteName == noteName && n.subFolder == subFolder) ||
+                                       tempNotes.Any(n => n.noteName == noteName && n.subFolder == subFolder);
+                    
+                    if (!existsLocally)
                     {
-                        Debug.WriteLine($"サーバーにのみあるノートをダウンロード: {serverNote}");
-                        await SyncNoteAsync(uid, serverNote, null);
+                        Debug.WriteLine($"サーバーにのみあるノートをダウンロード: {noteName} (サブフォルダ: {subFolder ?? "ルート"})");
+                        await SyncNoteAsync(uid, noteName, subFolder);
                     }
                 }
 
                 // 3. ローカルにのみあるノートのアップロード（共有ノートは除外）
                 Debug.WriteLine("3. ローカルにのみあるノートのアップロード開始");
-                var allLocalNotes = localNotes.Concat(tempNotes).DistinctBy(n => n.noteName);
+                var allLocalNotes = localNotes.Concat(tempNotes).DistinctBy(n => (n.noteName, n.subFolder));
                 foreach (var localNote in allLocalNotes)
                 {
                     // 共有ノートは除外（フォルダ内のノートも含めてチェック）
@@ -1227,7 +1393,10 @@ namespace AnkiPlus_MAUI.Services
                         continue;
                     }
                     
-                    if (!serverNotes.Contains(localNote.noteName))
+                    // サーバーに存在するかチェック（サブフォルダも含めて）
+                    var existsOnServer = allServerNotes.Any(n => n.Item1 == localNote.noteName && n.Item2 == localNote.subFolder);
+                    
+                    if (!existsOnServer)
                     {
                         Debug.WriteLine($"ローカルにのみあるノートをアップロード開始: {localNote.noteName}");
                         Debug.WriteLine($"ノートのパス: {localNote.cardsPath}");

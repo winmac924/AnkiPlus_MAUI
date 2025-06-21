@@ -71,23 +71,27 @@ namespace AnkiPlus_MAUI.Services
 
             // UIDを除外し、残りのパスを解析
             var remainingParts = parts.Skip(1).ToArray();
-            var noteName = remainingParts[remainingParts.Length - 1];
-            var subFolder = string.Join("/", remainingParts.Take(remainingParts.Length - 1));
-
+            
             // cards.txtの場合、親フォルダをノート名として扱う
-            if (noteName == "cards.txt")
+            if (remainingParts[remainingParts.Length - 1] == "cards.txt")
             {
-                var parentFolder = remainingParts[remainingParts.Length - 2];
-                return (subFolder, parentFolder, true);
+                var noteName = remainingParts[remainingParts.Length - 2];
+                var subFolder = remainingParts.Length > 2 ? string.Join("/", remainingParts.Take(remainingParts.Length - 2)) : null;
+                return (subFolder, noteName, true);
             }
 
             // cards/ディレクトリ内のJSONファイルの場合
             if (remainingParts.Length > 2 && remainingParts[remainingParts.Length - 2] == "cards")
             {
+                var noteName = remainingParts[remainingParts.Length - 1];
+                var subFolder = remainingParts.Length > 3 ? string.Join("/", remainingParts.Take(remainingParts.Length - 3)) : null;
                 return (subFolder, noteName, true);
             }
 
-            return (subFolder, noteName, false);
+            // その他のファイルの場合
+            var fileName = remainingParts[remainingParts.Length - 1];
+            var folderPath = remainingParts.Length > 1 ? string.Join("/", remainingParts.Take(remainingParts.Length - 1)) : null;
+            return (folderPath, fileName, false);
         }
 
         public async Task<List<string>> GetNoteListAsync(string uid, string subFolder = null)
@@ -99,6 +103,8 @@ namespace AnkiPlus_MAUI.Services
                 
                 var containerClient = _blobServiceClient.GetBlobContainerClient(CONTAINER_NAME);
                 var userPath = GetUserPath(uid, subFolder);
+                Debug.WriteLine($"検索パス: {userPath}");
+                
                 var notes = new List<string>();
                 var processedNames = new HashSet<string>();
 
@@ -109,17 +115,49 @@ namespace AnkiPlus_MAUI.Services
                     // cards.txtのみを処理
                     if (blob.Name.EndsWith("/cards.txt"))
                     {
-                        var (parsedSubFolder, noteName, _) = ParseBlobPath(blob.Name);
+                        var (parsedSubFolder, noteName, isCard) = ParseBlobPath(blob.Name);
+                        Debug.WriteLine($"パース結果 - サブフォルダ: {parsedSubFolder}, ノート名: {noteName}, カード: {isCard}");
+                        
                         if (noteName != null && !processedNames.Contains(noteName))
                         {
-                            notes.Add(noteName);
-                            processedNames.Add(noteName);
-                            Debug.WriteLine($"追加されたノート: {noteName} (パス: {blob.Name})");
+                            // サブフォルダが指定されている場合、そのサブフォルダ内のノートのみを対象とする
+                            if (subFolder != null)
+                            {
+                                if (parsedSubFolder == subFolder)
+                                {
+                                    notes.Add(noteName);
+                                    processedNames.Add(noteName);
+                                    Debug.WriteLine($"追加されたノート: {noteName} (パス: {blob.Name})");
+                                }
+                                else
+                                {
+                                    Debug.WriteLine($"サブフォルダが一致しないためスキップ: 期待={subFolder}, 実際={parsedSubFolder}");
+                                }
+                            }
+                            else
+                            {
+                                // サブフォルダが指定されていない場合、ルートのノートのみを対象とする
+                                if (parsedSubFolder == null)
+                                {
+                                    notes.Add(noteName);
+                                    processedNames.Add(noteName);
+                                    Debug.WriteLine($"追加されたルートノート: {noteName} (パス: {blob.Name})");
+                                }
+                                else
+                                {
+                                    Debug.WriteLine($"サブフォルダ内のノートをスキップ（ルート取得時）: {parsedSubFolder}/{noteName}");
+                                }
+                            }
+                        }
+                        else if (processedNames.Contains(noteName))
+                        {
+                            Debug.WriteLine($"既に処理済みのノートをスキップ: {noteName}");
                         }
                     }
                 }
 
                 Debug.WriteLine($"取得したノート数: {notes.Count}");
+                Debug.WriteLine($"取得したノート一覧: {string.Join(", ", notes)}");
                 return notes;
             }
             catch (Exception ex)
@@ -269,23 +307,30 @@ namespace AnkiPlus_MAUI.Services
                 {
                     Debug.WriteLine($"見つかったBlob: {blob.Name}");
                     
-                    // cards.txtのパスから最初のディレクトリのみを取得
+                    // cards.txtのパスからサブフォルダを取得
                     if (blob.Name.EndsWith("/cards.txt"))
                     {
                         var parts = blob.Name.Split('/');
                         if (parts.Length >= 3)
                         {
-                            // UIDを除外し、最初のディレクトリのみを取得
-                            var subFolder = parts[1];
-                            if (!string.IsNullOrEmpty(subFolder))
+                            // UIDを除外し、cards.txtの親フォルダまでのパスを取得
+                            var remainingParts = parts.Skip(1).Take(parts.Length - 2).ToArray();
+                            if (remainingParts.Length > 0)
                             {
-                                folders.Add(subFolder);
+                                // 最初のディレクトリがサブフォルダ
+                                var subFolder = remainingParts[0];
+                                if (!string.IsNullOrEmpty(subFolder))
+                                {
+                                    folders.Add(subFolder);
+                                    Debug.WriteLine($"サブフォルダを追加: {subFolder} (パス: {blob.Name})");
+                                }
                             }
                         }
                     }
                 }
 
                 Debug.WriteLine($"取得したサブフォルダ数: {folders.Count}");
+                Debug.WriteLine($"サブフォルダ一覧: {string.Join(", ", folders)}");
                 return folders.ToList();
             }
             catch (Exception ex)
@@ -483,7 +528,17 @@ namespace AnkiPlus_MAUI.Services
                 
                 // 一時フォルダのパス構築
                 var tempBasePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AnkiPlus");
-                var tempDir = Path.Combine(tempBasePath, subFolder ?? "", $"{noteName}_temp");
+                string tempDir;
+                if (!string.IsNullOrEmpty(subFolder))
+                {
+                    // サブフォルダ内のノートの場合
+                    tempDir = Path.Combine(tempBasePath, subFolder, $"{noteName}_temp");
+                }
+                else
+                {
+                    // ルートのノートの場合
+                    tempDir = Path.Combine(tempBasePath, $"{noteName}_temp");
+                }
 
                 if (!Directory.Exists(tempDir))
                 {
@@ -618,17 +673,32 @@ namespace AnkiPlus_MAUI.Services
                 // .ankplsファイルを作成
                 Debug.WriteLine($".ankplsファイル作成開始");
                 var localBasePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "AnkiPlus");
-                var ankplsPath = Path.Combine(localBasePath, subFolder ?? "", $"{noteName}.ankpls");
-                var ankplsDir = Path.GetDirectoryName(ankplsPath);
+                string ankplsPath;
+                if (!string.IsNullOrEmpty(subFolder))
+                {
+                    // サブフォルダ内のノートの場合
+                    var subFolderPath = Path.Combine(localBasePath, subFolder);
+                    if (!Directory.Exists(subFolderPath))
+                    {
+                        Directory.CreateDirectory(subFolderPath);
+                        Debug.WriteLine($".ankplsディレクトリを作成: {subFolderPath}");
+                    }
+                    ankplsPath = Path.Combine(subFolderPath, $"{noteName}.ankpls");
+                }
+                else
+                {
+                    // ルートのノートの場合
+                    ankplsPath = Path.Combine(localBasePath, $"{noteName}.ankpls");
+                }
                 
                 Debug.WriteLine($"ローカルベースパス: {localBasePath}");
                 Debug.WriteLine($".ankplsファイルパス: {ankplsPath}");
-                Debug.WriteLine($".ankplsディレクトリ: {ankplsDir}");
+                Debug.WriteLine($".ankplsディレクトリ: {Path.GetDirectoryName(ankplsPath)}");
                 
-                if (!Directory.Exists(ankplsDir))
+                if (!Directory.Exists(Path.GetDirectoryName(ankplsPath)))
                 {
-                    Directory.CreateDirectory(ankplsDir);
-                    Debug.WriteLine($".ankplsディレクトリを作成: {ankplsDir}");
+                    Directory.CreateDirectory(Path.GetDirectoryName(ankplsPath));
+                    Debug.WriteLine($".ankplsディレクトリを作成: {Path.GetDirectoryName(ankplsPath)}");
                 }
 
                 if (File.Exists(ankplsPath))
