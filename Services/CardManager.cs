@@ -88,7 +88,7 @@ namespace AnkiPlus_MAUI.Services
         // Ctrlキー押下状態を管理
         private bool _isCtrlDown = false;
 
-        public CardManager(string cardsPath, string tempPath, string cardId = null)
+        public CardManager(string cardsPath, string tempPath, string cardId = null, string subFolder = null)
         {
             _ankplsFilePath = cardsPath;
             _tempExtractPath = tempPath;
@@ -96,6 +96,14 @@ namespace AnkiPlus_MAUI.Services
             _ankplsPath = cardsPath;
             _cardsFilePath = Path.Combine(_tempExtractPath, "cards.txt");
             _editCardId = cardId;
+            
+            // サブフォルダ情報がある場合は、.ankplsファイルのパスを正しく構築
+            if (!string.IsNullOrEmpty(subFolder))
+            {
+                var localBasePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "AnkiPlus");
+                var noteName = Path.GetFileNameWithoutExtension(cardsPath);
+                _ankplsFilePath = Path.Combine(localBasePath, subFolder, $"{noteName}.ankpls");
+            }
             
             LoadCards();
             LoadImageCount();
@@ -1868,6 +1876,8 @@ namespace AnkiPlus_MAUI.Services
                 if (!Directory.Exists(cardsDir)) return;
                 
                 var jsonFiles = Directory.GetFiles(cardsDir, "*.json");
+                _cards.Clear(); // 新しいフォーマットのみなので、リストをクリア
+                
                 foreach (var jsonFile in jsonFiles)
                 {
                     try
@@ -1875,28 +1885,74 @@ namespace AnkiPlus_MAUI.Services
                         var jsonContent = File.ReadAllText(jsonFile, System.Text.Encoding.UTF8);
                         var cardData = JsonSerializer.Deserialize<JsonElement>(jsonContent);
                         
-                        var cardId = cardData.GetProperty("id").GetString();
-                        var cardType = cardData.GetProperty("type").GetString();
+                        // JSONフォーマットから直接データを読み込み
+                        var jsonDataObject = new
+                        {
+                            id = cardData.GetProperty("id").GetString(),
+                            type = cardData.GetProperty("type").GetString(),
+                            front = cardData.TryGetProperty("front", out var frontProp) ? frontProp.GetString() : "",
+                            back = cardData.TryGetProperty("back", out var backProp) ? backProp.GetString() : "",
+                            question = cardData.TryGetProperty("question", out var questionProp) ? questionProp.GetString() : "",
+                            explanation = cardData.TryGetProperty("explanation", out var explanationProp) ? explanationProp.GetString() : "",
+                            choices = cardData.TryGetProperty("choices", out var choicesProp) ? choicesProp : (JsonElement?)null,
+                            imagePath = cardData.TryGetProperty("imagePath", out var imagePathProp) ? imagePathProp.GetString() : "",
+                            selections = cardData.TryGetProperty("selections", out var selectionsProp) ? selectionsProp : (JsonElement?)null
+                        };
                         
-                        // 既存のプレースホルダーを実際のデータに置き換え
-                        var existingIndex = _cards.FindIndex(c => c.StartsWith($"{cardId}|"));
-                        if (existingIndex >= 0)
+                        // カードタイプに応じて正しいJSONフォーマットに変換
+                        object cardJsonData = null;
+                        switch (jsonDataObject.type)
                         {
-                            // 新形式から旧形式に変換
-                            string oldFormatData = ConvertToOldFormat(cardData);
-                            if (!string.IsNullOrEmpty(oldFormatData))
-                            {
-                                _cards[existingIndex] = oldFormatData;
-                            }
+                            case "基本・穴埋め":
+                                cardJsonData = new
+                                {
+                                    id = jsonDataObject.id,
+                                    type = "basic",
+                                    front = jsonDataObject.front,
+                                    back = jsonDataObject.back
+                                };
+                                break;
+                                
+                            case "選択肢":
+                                cardJsonData = new
+                                {
+                                    id = jsonDataObject.id,
+                                    type = "choice",
+                                    question = jsonDataObject.question,
+                                    explanation = jsonDataObject.explanation,
+                                    choices = jsonDataObject.choices?.EnumerateArray().Select(c => new
+                                    {
+                                        text = c.GetProperty("text").GetString(),
+                                        correct = c.GetProperty("isCorrect").GetBoolean()
+                                    }).ToList()
+                                };
+                                break;
+                                
+                            case "画像穴埋め":
+                                cardJsonData = new
+                                {
+                                    id = jsonDataObject.id,
+                                    type = "image_fill",
+                                    imagePath = jsonDataObject.imagePath,
+                                    selections = jsonDataObject.selections?.EnumerateArray().Select(s => new
+                                    {
+                                        x = s.GetProperty("x").GetSingle(),
+                                        y = s.GetProperty("y").GetSingle(),
+                                        width = s.GetProperty("width").GetSingle(),
+                                        height = s.GetProperty("height").GetSingle()
+                                    }).ToList()
+                                };
+                                break;
                         }
-                        else
+                        
+                        if (cardJsonData != null)
                         {
-                            // 新しいカードの場合は追加
-                            string oldFormatData = ConvertToOldFormat(cardData);
-                            if (!string.IsNullOrEmpty(oldFormatData))
+                            var cardDataJson = JsonSerializer.Serialize(cardJsonData, new JsonSerializerOptions
                             {
-                                _cards.Add(oldFormatData);
-                            }
+                                WriteIndented = false,
+                                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+                            });
+                            _cards.Add(cardDataJson);
                         }
                     }
                     catch (Exception ex)
@@ -1913,66 +1969,7 @@ namespace AnkiPlus_MAUI.Services
 
         /// <summary>
         /// 新形式から旧形式に変換
-        /// </summary>
-        private string ConvertToOldFormat(JsonElement cardData)
-        {
-            try
-            {
-                var cardId = cardData.GetProperty("id").GetString();
-                var cardType = cardData.GetProperty("type").GetString();
-                
-                switch (cardType)
-                {
-                    case "基本・穴埋め":
-                        var front = cardData.GetProperty("front").GetString() ?? "";
-                        var back = cardData.GetProperty("back").GetString() ?? "";
-                        return $"{cardId}|basic|{front}|{back}";
-                        
-                    case "選択肢":
-                        var question = cardData.GetProperty("question").GetString() ?? "";
-                        var explanation = cardData.GetProperty("explanation").GetString() ?? "";
-                        var choices = cardData.GetProperty("choices");
-                        var choicesList = new List<object>();
-                        
-                        foreach (var choice in choices.EnumerateArray())
-                        {
-                            choicesList.Add(new
-                            {
-                                text = choice.GetProperty("text").GetString(),
-                                correct = choice.GetProperty("isCorrect").GetBoolean()
-                            });
-                        }
-                        
-                        var choicesJson = JsonSerializer.Serialize(choicesList);
-                        return $"{cardId}|choice|{question}|{choicesJson}|{explanation}";
-                        
-                    case "画像穴埋め":
-                        var selectionRects = cardData.GetProperty("selectionRects");
-                        var selectionsList = new List<object>();
-                        
-                        foreach (var rect in selectionRects.EnumerateArray())
-                        {
-                            selectionsList.Add(new
-                            {
-                                x = rect.GetProperty("x").GetSingle(),
-                                y = rect.GetProperty("y").GetSingle(),
-                                width = rect.GetProperty("width").GetSingle(),
-                                height = rect.GetProperty("height").GetSingle()
-                            });
-                        }
-                        
-                        var selectionsJson = JsonSerializer.Serialize(selectionsList);
-                        return $"{cardId}|image_fill||{selectionsJson}"; // 画像ファイル名は空文字列
-                }
-                
-                return null;
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"形式変換エラー: {ex.Message}");
-                return null;
-            }
-        }
+
 
         /// <summary>
         /// カードデータを読み込み
@@ -1983,36 +1980,41 @@ namespace AnkiPlus_MAUI.Services
             {
                 Debug.WriteLine($"カードデータ読み込み開始: {cardId}");
                 
-                var cardLine = _cards.FirstOrDefault(c => c.StartsWith($"{cardId}|"));
+                var cardLine = _cards.FirstOrDefault(c => 
+                {
+                    try
+                    {
+                        var jsonElement = JsonSerializer.Deserialize<JsonElement>(c);
+                        return jsonElement.GetProperty("id").GetString() == cardId;
+                    }
+                    catch
+                    {
+                        return false;
+                    }
+                });
+                
                 if (cardLine == null)
                 {
                     Debug.WriteLine($"カードが見つかりません: {cardId}");
                     return;
                 }
                 
-                var parts = cardLine.Split('|');
-                if (parts.Length < 4)
-                {
-                    Debug.WriteLine($"カードデータが不正です: {cardLine}");
-                    return;
-                }
+                var jsonElement = JsonSerializer.Deserialize<JsonElement>(cardLine);
+                var cardType = jsonElement.GetProperty("type").GetString();
                 
-                var cardType = parts[1];
-                
-                // カードタイプに応じてピッカーを設定
                 switch (cardType)
                 {
                     case "basic":
                         _cardTypePicker.SelectedIndex = 0;
-                        LoadBasicCardData(parts);
+                        LoadBasicCardDataFromJson(jsonElement);
                         break;
                     case "choice":
                         _cardTypePicker.SelectedIndex = 1;
-                        LoadChoiceCardData(parts);
+                        LoadChoiceCardDataFromJson(jsonElement);
                         break;
                     case "image_fill":
                         _cardTypePicker.SelectedIndex = 2;
-                        LoadImageFillCardData(parts);
+                        LoadImageFillCardDataFromJson(jsonElement);
                         break;
                 }
                 
@@ -2024,88 +2026,100 @@ namespace AnkiPlus_MAUI.Services
             }
         }
 
+
+
         /// <summary>
-        /// 基本カードデータを読み込み
+        /// 基本カードデータをJSONから読み込み
         /// </summary>
-        private void LoadBasicCardData(string[] parts)
+        private void LoadBasicCardDataFromJson(JsonElement jsonElement)
         {
             try
             {
-                if (parts.Length >= 4)
+                if (jsonElement.TryGetProperty("front", out var frontElement) && 
+                    jsonElement.TryGetProperty("back", out var backElement))
                 {
-                    _frontTextEditor.Text = parts[2];
-                    _backTextEditor.Text = parts[3];
+                    _frontTextEditor.Text = frontElement.GetString() ?? "";
+                    _backTextEditor.Text = backElement.GetString() ?? "";
                 }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"基本カードデータ読み込みエラー: {ex.Message}");
+                Debug.WriteLine($"基本カードJSONデータ読み込みエラー: {ex.Message}");
             }
         }
 
+
+
         /// <summary>
-        /// 選択肢カードデータを読み込み
+        /// 選択肢カードデータをJSONから読み込み
         /// </summary>
-        private void LoadChoiceCardData(string[] parts)
+        private void LoadChoiceCardDataFromJson(JsonElement jsonElement)
         {
             try
             {
-                if (parts.Length >= 5)
+                if (jsonElement.TryGetProperty("question", out var questionElement))
                 {
-                    _choiceQuestion.Text = parts[2];
-                    _choiceQuestionExplanation.Text = parts[4];
-                    
-                    // 選択肢データを解析
-                    var choicesJson = parts[3];
-                    var choices = JsonSerializer.Deserialize<List<object>>(choicesJson);
-                    
+                    _choiceQuestion.Text = questionElement.GetString() ?? "";
+                }
+
+                if (jsonElement.TryGetProperty("explanation", out var explanationElement))
+                {
+                    _choiceQuestionExplanation.Text = explanationElement.GetString() ?? "";
+                }
+
+                if (jsonElement.TryGetProperty("choices", out var choicesElement) && choicesElement.ValueKind == JsonValueKind.Array)
+                {
                     _choicesContainer.Children.Clear();
-                    foreach (var choice in choices)
+                    foreach (var choice in choicesElement.EnumerateArray())
                     {
-                        // 選択肢オブジェクトを解析
-                        var choiceElement = JsonSerializer.Deserialize<JsonElement>(choice.ToString());
-                        var text = choiceElement.GetProperty("text").GetString() ?? "";
-                        var isCorrect = choiceElement.GetProperty("correct").GetBoolean();
-                        
-                        // 選択肢を追加（正解フラグ付き）
+                        if (choice.TryGetProperty("text", out var textElement) &&
+                            choice.TryGetProperty("correct", out var correctElement))
+                        {
+                            var text = textElement.GetString() ?? "";
+                            var isCorrect = correctElement.GetBoolean();
                         AddChoiceItem(text, isCorrect);
+                        }
                     }
                 }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"選択肢カードデータ読み込みエラー: {ex.Message}");
+                Debug.WriteLine($"選択肢カードJSONデータ読み込みエラー: {ex.Message}");
             }
         }
 
+
+
         /// <summary>
-        /// 画像穴埋めカードデータを読み込み
+        /// 画像穴埋めカードデータをJSONから読み込み
         /// </summary>
-        private void LoadImageFillCardData(string[] parts)
+        private void LoadImageFillCardDataFromJson(JsonElement jsonElement)
         {
             try
             {
-                if (parts.Length >= 4)
+                if (jsonElement.TryGetProperty("imagePath", out var imagePathElement))
                 {
-                    var imagePath = parts[2];
-                    var selectionsJson = parts[3];
-                    
-                    // 画像を読み込み
+                    var imagePath = imagePathElement.GetString() ?? "";
                     LoadImageFromPath(imagePath);
+                }
                     
-                    // 選択範囲を復元
-                    var selections = JsonSerializer.Deserialize<List<object>>(selectionsJson);
+                if (jsonElement.TryGetProperty("selections", out var selectionsElement) && selectionsElement.ValueKind == JsonValueKind.Array)
+                {
                     _selectionRects.Clear();
-                    
-                    foreach (var selection in selections)
+                    foreach (var selection in selectionsElement.EnumerateArray())
                     {
-                        var selectionElement = JsonSerializer.Deserialize<JsonElement>(selection.ToString());
-                        var x = selectionElement.GetProperty("x").GetSingle();
-                        var y = selectionElement.GetProperty("y").GetSingle();
-                        var width = selectionElement.GetProperty("width").GetSingle();
-                        var height = selectionElement.GetProperty("height").GetSingle();
+                        if (selection.TryGetProperty("x", out var xElement) &&
+                            selection.TryGetProperty("y", out var yElement) &&
+                            selection.TryGetProperty("width", out var widthElement) &&
+                            selection.TryGetProperty("height", out var heightElement))
+                        {
+                            var x = xElement.GetSingle();
+                            var y = yElement.GetSingle();
+                            var width = widthElement.GetSingle();
+                            var height = heightElement.GetSingle();
                         
                         _selectionRects.Add(new SKRect(x, y, x + width, y + height));
+                        }
                     }
                     
                     // キャンバスを更新
@@ -2117,7 +2131,7 @@ namespace AnkiPlus_MAUI.Services
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"画像穴埋めカードデータ読み込みエラー: {ex.Message}");
+                Debug.WriteLine($"画像穴埋めカードJSONデータ読み込みエラー: {ex.Message}");
             }
         }
 
@@ -2220,8 +2234,8 @@ namespace AnkiPlus_MAUI.Services
         {
             try
             {
-                var frontText = _frontTextEditor.Text ?? "";
-                var backText = _backTextEditor.Text ?? "";
+                var frontText = _frontTextEditor.Text?.Replace("\r\n", "\n").Replace("\r", "\n") ?? "";
+                var backText = _backTextEditor.Text?.Replace("\r\n", "\n").Replace("\r", "\n") ?? "";
                 
                 if (string.IsNullOrWhiteSpace(frontText))
                 {
@@ -2237,7 +2251,19 @@ namespace AnkiPlus_MAUI.Services
                 }
                 
                 var cardId = string.IsNullOrEmpty(_editCardId) ? Guid.NewGuid().ToString() : _editCardId;
-                var cardData = $"{cardId}|basic|{frontText}|{backText}";
+                
+                // JSONフォーマットでカードデータを作成
+                var cardData = JsonSerializer.Serialize(new
+                {
+                    id = cardId,
+                    type = "基本・穴埋め",
+                    front = frontText,
+                    back = backText
+                }, new JsonSerializerOptions
+                {
+                    WriteIndented = false,
+                    Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+                });
                 
                 await SaveCardData(cardData);
                 
@@ -2257,8 +2283,8 @@ namespace AnkiPlus_MAUI.Services
         {
             try
             {
-                var questionText = _choiceQuestion.Text ?? "";
-                var explanationText = _choiceQuestionExplanation.Text ?? "";
+                var questionText = _choiceQuestion.Text?.Replace("\r\n", "\n").Replace("\r", "\n") ?? "";
+                var explanationText = _choiceQuestionExplanation.Text?.Replace("\r\n", "\n").Replace("\r", "\n") ?? "";
                 
                 if (string.IsNullOrWhiteSpace(questionText))
                 {
@@ -2280,14 +2306,14 @@ namespace AnkiPlus_MAUI.Services
                     if (child is HorizontalStackLayout layout)
                     {
                         var editor = layout.Children.OfType<Editor>().FirstOrDefault();
-                        var switchControl = layout.Children.OfType<Microsoft.Maui.Controls.Switch>().FirstOrDefault();
+                        var checkBox = layout.Children.OfType<CheckBox>().FirstOrDefault();
                         
                         if (editor != null && !string.IsNullOrWhiteSpace(editor.Text))
                         {
                             choices.Add(new
                             {
-                                text = editor.Text,
-                                correct = switchControl?.IsToggled ?? false
+                                text = editor.Text?.Replace("\r\n", "\n").Replace("\r", "\n") ?? "",
+                                correct = checkBox?.IsChecked ?? false
                             });
                         }
                     }
@@ -2306,9 +2332,21 @@ namespace AnkiPlus_MAUI.Services
                     return;
                 }
                 
-                var choicesJson = JsonSerializer.Serialize(choices);
                 var cardId = string.IsNullOrEmpty(_editCardId) ? Guid.NewGuid().ToString() : _editCardId;
-                var cardData = $"{cardId}|choice|{questionText}|{choicesJson}|{explanationText}";
+                
+                // JSONフォーマットでカードデータを作成
+                var cardData = JsonSerializer.Serialize(new
+                {
+                    id = cardId,
+                    type = "選択肢",
+                    question = questionText,
+                    choices = choices,
+                    explanation = explanationText
+                }, new JsonSerializerOptions
+                {
+                    WriteIndented = false,
+                    Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+                });
                 
                 await SaveCardData(cardData);
                 
@@ -2363,9 +2401,20 @@ namespace AnkiPlus_MAUI.Services
                     height = rect.Height
                 }).ToList();
                 
-                var selectionsJson = JsonSerializer.Serialize(selections);
                 var cardId = string.IsNullOrEmpty(_editCardId) ? Guid.NewGuid().ToString() : _editCardId;
-                var cardData = $"{cardId}|image_fill|{_selectedImagePath}|{selectionsJson}";
+                
+                // JSONフォーマットでカードデータを作成
+                var cardData = JsonSerializer.Serialize(new
+                {
+                    id = cardId,
+                    type = "画像穴埋め",
+                    imagePath = _selectedImagePath,
+                    selections = selections
+                }, new JsonSerializerOptions
+                {
+                    WriteIndented = false,
+                    Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+                });
                 
                 await SaveCardData(cardData);
                 
@@ -2432,10 +2481,46 @@ namespace AnkiPlus_MAUI.Services
         {
             try
             {
+                var jsonElement = JsonSerializer.Deserialize<JsonElement>(cardData);
+                var cardId = jsonElement.GetProperty("id").GetString();
+                
+                // 既存のcards.txtから更新日時を読み込み
+                var existingTimestamps = new Dictionary<string, string>();
+                if (File.Exists(_cardsFilePath))
+                {
+                    var cardslines = File.ReadAllLines(_cardsFilePath, System.Text.Encoding.UTF8);
+                    for (int i = 1; i < cardslines.Length; i++) // 最初の行（カード数）はスキップ
+                    {
+                        var line = cardslines[i];
+                        if (!string.IsNullOrWhiteSpace(line))
+                        {
+                            var parts = line.Split(',');
+                            if (parts.Length >= 2)
+                            {
+                                var existingCardId = parts[0];
+                                var timestamp = parts[1];
+                                existingTimestamps[existingCardId] = timestamp;
+                            }
+                        }
+                    }
+                }
+
                 // 編集モードの場合は既存のデータを更新
                 if (!string.IsNullOrEmpty(_editCardId))
                 {
-                    var existingIndex = _cards.FindIndex(c => c.StartsWith($"{_editCardId}|"));
+                    var existingIndex = _cards.FindIndex(c => 
+                    {
+                        try
+                        {
+                            var element = JsonSerializer.Deserialize<JsonElement>(c);
+                            return element.GetProperty("id").GetString() == _editCardId;
+                        }
+                        catch
+                        {
+                            return false;
+                        }
+                    });
+                    
                     if (existingIndex >= 0)
                     {
                         _cards[existingIndex] = cardData;
@@ -2454,15 +2539,31 @@ namespace AnkiPlus_MAUI.Services
                 var lines = new List<string>();
                 lines.Add(_cards.Count.ToString()); // カード数をヘッダーとして追加
                 
-                // 各カードデータからIDと更新日時のみを抽出
+                // 各カードデータからIDと更新日時を抽出
                 foreach (var card in _cards)
                 {
-                    var parts = card.Split('|');
-                    if (parts.Length >= 1)
+                    try
                     {
-                        var cardId = parts[0];
-                        var timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
-                        lines.Add($"{cardId},{timestamp}");
+                        var element = JsonSerializer.Deserialize<JsonElement>(card);
+                        var currentCardId = element.GetProperty("id").GetString();
+                        string timestamp;
+                        
+                        // 既存のカードの場合は既存の更新日時を使用、新規の場合は現在時刻を使用
+                        if (existingTimestamps.ContainsKey(currentCardId))
+                        {
+                            timestamp = existingTimestamps[currentCardId];
+                        }
+                        else
+                        {
+                            timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                        }
+                        
+                        lines.Add($"{currentCardId},{timestamp}");
+                    }
+                    catch
+                    {
+                        // JSONパースに失敗した場合はスキップ
+                        continue;
                     }
                 }
                 
@@ -2491,54 +2592,44 @@ namespace AnkiPlus_MAUI.Services
         {
             try
             {
-                var parts = cardData.Split('|');
-                if (parts.Length < 2) return;
-                
-                var cardId = parts[0];
-                var cardType = parts[1];
+                // JSONフォーマットのデータをデシリアライズ
+                var jsonElement = JsonSerializer.Deserialize<JsonElement>(cardData);
                 
                 // cardsディレクトリを作成
                 var cardsDir = Path.Combine(_tempExtractPath, "cards");
                 Directory.CreateDirectory(cardsDir);
                 
+                var cardId = jsonElement.GetProperty("id").GetString();
                 var jsonPath = Path.Combine(cardsDir, $"{cardId}.json");
+                var cardType = jsonElement.GetProperty("type").GetString();
                 
                 // 統一したJSONデータ形式を作成
                 object jsonData = null;
                 
                 switch (cardType)
                 {
-                    case "basic":
-                        if (parts.Length >= 4)
-                        {
+                    case "基本・穴埋め":
                             jsonData = new
                             {
                                 id = cardId,
                                 type = "基本・穴埋め",
-                                front = parts[2],
-                                back = parts[3],
+                            front = jsonElement.GetProperty("front").GetString() ?? "",
+                            back = jsonElement.GetProperty("back").GetString() ?? "",
                                 question = "",
                                 explanation = "",
                                 choices = new object[0],
                                 selectionRects = new object[0]
                             };
-                        }
                         break;
                         
-                    case "choice":
-                        if (parts.Length >= 5)
+                    case "選択肢":
+                        var choices = jsonElement.GetProperty("choices").EnumerateArray().Select(c => new
                         {
-                            var choicesJson = parts[3];
-                            var choices = JsonSerializer.Deserialize<List<object>>(choicesJson);
-                            var choiceItems = choices.Select(c => 
-                            {
-                                var element = JsonSerializer.Deserialize<JsonElement>(c.ToString());
-                                return new
-                                {
-                                    text = element.GetProperty("text").GetString(),
-                                    isCorrect = element.GetProperty("correct").GetBoolean()
-                                };
-                            }).ToList();
+                            text = c.GetProperty("text").GetString() ?? "",
+                            isCorrect = c.TryGetProperty("correct", out var correctProp) ? 
+                                correctProp.GetBoolean() : 
+                                (c.TryGetProperty("isCorrect", out var isCorrectProp) ? isCorrectProp.GetBoolean() : false)
+                        }).ToArray();
                             
                             jsonData = new
                             {
@@ -2546,30 +2637,21 @@ namespace AnkiPlus_MAUI.Services
                                 type = "選択肢",
                                 front = "",
                                 back = "",
-                                question = parts[2],
-                                explanation = parts[4],
-                                choices = choiceItems,
+                            question = jsonElement.GetProperty("question").GetString() ?? "",
+                            explanation = jsonElement.GetProperty("explanation").GetString() ?? "",
+                            choices = choices,
                                 selectionRects = new object[0]
                             };
-                        }
                         break;
                         
-                    case "image_fill":
-                        if (parts.Length >= 4)
+                    case "画像穴埋め":
+                        var selections = jsonElement.GetProperty("selections").EnumerateArray().Select(s => new
                         {
-                            var selectionsJson = parts[3];
-                            var selections = JsonSerializer.Deserialize<List<object>>(selectionsJson);
-                            var selectionRects = selections.Select(s =>
-                            {
-                                var element = JsonSerializer.Deserialize<JsonElement>(s.ToString());
-                                return new
-                                {
-                                    x = element.GetProperty("x").GetSingle(),
-                                    y = element.GetProperty("y").GetSingle(),
-                                    width = element.GetProperty("width").GetSingle(),
-                                    height = element.GetProperty("height").GetSingle()
-                                };
-                            }).ToList();
+                            x = s.GetProperty("x").GetSingle(),
+                            y = s.GetProperty("y").GetSingle(),
+                            width = s.GetProperty("width").GetSingle(),
+                            height = s.GetProperty("height").GetSingle()
+                        }).ToArray();
                             
                             jsonData = new
                             {
@@ -2580,9 +2662,8 @@ namespace AnkiPlus_MAUI.Services
                                 question = "",
                                 explanation = "",
                                 choices = new object[0],
-                                selectionRects = selectionRects
+                            selectionRects = selections
                             };
-                        }
                         break;
                 }
                 
@@ -2591,7 +2672,7 @@ namespace AnkiPlus_MAUI.Services
                     var jsonString = JsonSerializer.Serialize(jsonData, new JsonSerializerOptions
                     {
                         WriteIndented = true,
-                        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping // 日本語文字をエスケープしない
+                        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
                     });
                     await File.WriteAllTextAsync(jsonPath, jsonString, System.Text.Encoding.UTF8);
                     Debug.WriteLine($"JSONファイル作成完了: {jsonPath}");
@@ -3395,11 +3476,24 @@ namespace AnkiPlus_MAUI.Services
                     Debug.WriteLine($"カーソル位置: {cursorPosition}");
                     Debug.WriteLine($"挿入するテキスト: '{markdownText}'");
                     
-                    // ペースト時は完全に上書きして2重ペーストを防ぐ
-                    editor.Text = markdownText;
-                    editor.CursorPosition = markdownText.Length;
-                    
-                    Debug.WriteLine($"テキスト上書き完了: '{editor.Text}'");
+                    // カーソル位置にテキストを挿入
+                    if (cursorPosition >= 0 && cursorPosition <= currentText.Length)
+                    {
+                        string newText = currentText.Insert(cursorPosition, markdownText);
+                        editor.Text = newText;
+                        editor.CursorPosition = cursorPosition + markdownText.Length;
+                        
+                        Debug.WriteLine($"テキスト挿入完了: '{editor.Text}'");
+                        Debug.WriteLine($"新しいカーソル位置: {editor.CursorPosition}");
+                    }
+                    else
+                    {
+                        // カーソル位置が不正な場合は末尾に追加
+                        editor.Text = currentText + markdownText;
+                        editor.CursorPosition = editor.Text.Length;
+                        
+                        Debug.WriteLine($"テキスト末尾追加完了: '{editor.Text}'");
+                    }
                     
                     // プレビューを更新
                     UpdatePreviewForEditor(editor);
@@ -3441,9 +3535,22 @@ namespace AnkiPlus_MAUI.Services
                         
                         Debug.WriteLine($"フォールバック: プレーンテキスト '{plainText}'");
                         
-                        // フォールバック時も完全に上書き
-                        editor.Text = plainText;
-                        editor.CursorPosition = plainText.Length;
+                        // フォールバック時もカーソル位置に挿入
+                        var currentText = editor.Text ?? "";
+                        var cursorPosition = editor.CursorPosition;
+                        
+                        if (cursorPosition >= 0 && cursorPosition <= currentText.Length)
+                        {
+                            string newText = currentText.Insert(cursorPosition, plainText);
+                            editor.Text = newText;
+                            editor.CursorPosition = cursorPosition + plainText.Length;
+                        }
+                        else
+                        {
+                            // カーソル位置が不正な場合は末尾に追加
+                            editor.Text = currentText + plainText;
+                            editor.CursorPosition = editor.Text.Length;
+                        }
                         
                         UpdatePreviewForEditor(editor);
                         

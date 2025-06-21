@@ -23,6 +23,7 @@
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
             <Button Text="Ankiモードへ"
                     Grid.Column="2"
@@ -39,13 +40,18 @@
                     VerticalOptions="Center"
                     Clicked="OnAnkiImportClicked"
                     Margin="0,0,10,0"/>
-            <Button Text="同期"
+            <Button Text="共有キーからインポート"
                     Grid.Column="5"
+                    VerticalOptions="Center"
+                    Clicked="OnSharedKeyImportClicked"
+                    Margin="0,0,10,0"/>
+            <Button Text="同期"
+                    Grid.Column="6"
                     VerticalOptions="Center"
                     Clicked="OnSyncClicked"
                     Margin="0,0,10,0"/>
             <Button Text="ログアウト"
-                    Grid.Column="6"
+                    Grid.Column="7"
                     VerticalOptions="Center"
                     Clicked="OnLogoutClicked"/>
         </Grid>

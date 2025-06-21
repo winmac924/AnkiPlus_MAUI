@@ -14,6 +14,7 @@ namespace AnkiPlus_MAUI
         public static BlobServiceClient BlobServiceClient { get; private set; }
         private static User _currentUser;
         private readonly ConfigurationService _configService;
+        private readonly FileWatcherService _fileWatcherService;
 
         public static User CurrentUser 
         { 
@@ -21,10 +22,11 @@ namespace AnkiPlus_MAUI
             set => _currentUser = value;
         }
 
-        public App(ConfigurationService configService)
+        public App(ConfigurationService configService, FileWatcherService fileWatcherService)
         {
             InitializeComponent();
             _configService = configService;
+            _fileWatcherService = fileWatcherService;
 
             CleanupBackupFiles();
             InitializeFirebase();
@@ -184,14 +186,23 @@ namespace AnkiPlus_MAUI
 
         protected override void OnStart()
         {
+            base.OnStart();
+            // アプリケーション開始時にファイル監視を開始
+            _fileWatcherService?.StartWatching();
         }
 
         protected override void OnSleep()
         {
+            base.OnSleep();
+            // アプリケーションがバックグラウンドに移行時にファイル監視を停止
+            _fileWatcherService?.StopWatching();
         }
 
         protected override void OnResume()
         {
+            base.OnResume();
+            // アプリケーションがフォアグラウンドに戻った時にファイル監視を再開
+            _fileWatcherService?.StartWatching();
         }
     }
 }

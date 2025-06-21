@@ -27,8 +27,14 @@ public static class MauiProgram
 
 		// サービスの登録
 		builder.Services.AddSingleton<ConfigurationService>();
-		builder.Services.AddSingleton<CardSyncService>();
 		builder.Services.AddSingleton<BlobStorageService>();
+		builder.Services.AddSingleton<SharedKeyService>();
+		builder.Services.AddSingleton<FileWatcherService>();
+		builder.Services.AddSingleton<CardSyncService>(serviceProvider => 
+			new CardSyncService(
+				serviceProvider.GetRequiredService<BlobStorageService>(),
+				serviceProvider.GetRequiredService<SharedKeyService>()
+			));
 		builder.Services.AddSingleton<AnkiExporter>();
 		builder.Services.AddSingleton<AnkiImporter>();
 		
@@ -43,7 +49,21 @@ public static class MauiProgram
 		builder.Services.AddTransient<MainPageViewModel>();
 
 		// Pages の登録
-		builder.Services.AddTransient<MainPage>();
+		builder.Services.AddTransient<MainPage>(serviceProvider => 
+			new MainPage(
+				serviceProvider.GetRequiredService<CardSyncService>(),
+				serviceProvider.GetRequiredService<UpdateNotificationService>(),
+				serviceProvider.GetRequiredService<BlobStorageService>(),
+				serviceProvider.GetRequiredService<SharedKeyService>(),
+				serviceProvider.GetRequiredService<FileWatcherService>()
+			));
+
+		// App の登録
+		builder.Services.AddSingleton<App>(serviceProvider => 
+			new App(
+				serviceProvider.GetRequiredService<ConfigurationService>(),
+				serviceProvider.GetRequiredService<FileWatcherService>()
+			));
 
 #if DEBUG
 		builder.Services.AddLogging(logging =>

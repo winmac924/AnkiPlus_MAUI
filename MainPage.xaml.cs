@@ -26,18 +26,27 @@ namespace AnkiPlus_MAUI
             Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "AnkiPlus");
         private readonly CardSyncService _cardSyncService;
         private readonly UpdateNotificationService _updateService;
+        private readonly BlobStorageService _blobStorageService;
+        private readonly SharedKeyService _sharedKeyService;
+        private readonly FileWatcherService _fileWatcherService;
         private bool _isSyncing = false;
         private MainPageViewModel _viewModel;
 
-        public MainPage(CardSyncService cardSyncService, UpdateNotificationService updateService)
+        public MainPage(CardSyncService cardSyncService, UpdateNotificationService updateService, BlobStorageService blobStorageService, SharedKeyService sharedKeyService, FileWatcherService fileWatcherService)
         {
             InitializeComponent();
             _viewModel = new MainPageViewModel();
             BindingContext = _viewModel;
             _cardSyncService = cardSyncService;
             _updateService = updateService;
+            _blobStorageService = blobStorageService;
+            _sharedKeyService = sharedKeyService;
+            _fileWatcherService = fileWatcherService;
             _currentPath.Push(FolderPath);
             LoadNotes();
+            
+            // ファイル監視イベントを設定
+            SetupFileWatcher();
             
             // ページが読み込まれた後にアップデートチェックを実行
             Loaded += MainPage_Loaded;
@@ -53,6 +62,110 @@ namespace AnkiPlus_MAUI
             if (NotesCollectionView != null)
             {
                 NotesCollectionView.VerticalOptions = LayoutOptions.Start;
+            }
+        }
+
+        private void SetupFileWatcher()
+        {
+            // ファイル作成時のイベント
+            _fileWatcherService.FileCreated += OnFileCreated;
+            _fileWatcherService.FileDeleted += OnFileDeleted;
+            _fileWatcherService.FileChanged += OnFileChanged;
+            _fileWatcherService.FileRenamed += OnFileRenamed;
+            _fileWatcherService.DirectoryCreated += OnDirectoryCreated;
+            _fileWatcherService.DirectoryDeleted += OnDirectoryDeleted;
+            
+            // 監視を開始
+            _fileWatcherService.StartWatching();
+        }
+
+        private void OnFileCreated(object sender, FileSystemEventArgs e)
+        {
+            // 現在のフォルダ内のファイルかチェック
+            var currentFolder = _currentPath.Peek();
+            if (Path.GetDirectoryName(e.FullPath) == currentFolder)
+            {
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    LoadNotes();
+                });
+            }
+        }
+
+        private void OnFileDeleted(object sender, FileSystemEventArgs e)
+        {
+            // 現在のフォルダ内のファイルかチェック
+            var currentFolder = _currentPath.Peek();
+            if (Path.GetDirectoryName(e.FullPath) == currentFolder)
+            {
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    LoadNotes();
+                });
+            }
+        }
+
+        private void OnFileChanged(object sender, FileSystemEventArgs e)
+        {
+            // 現在のフォルダ内のファイルかチェック
+            var currentFolder = _currentPath.Peek();
+            if (Path.GetDirectoryName(e.FullPath) == currentFolder)
+            {
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    LoadNotes();
+                });
+            }
+        }
+
+        private void OnFileRenamed(object sender, RenamedEventArgs e)
+        {
+            // 現在のフォルダ内のファイルかチェック
+            var currentFolder = _currentPath.Peek();
+            if (Path.GetDirectoryName(e.FullPath) == currentFolder || Path.GetDirectoryName(e.OldFullPath) == currentFolder)
+            {
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    LoadNotes();
+                });
+            }
+        }
+
+        private void OnDirectoryCreated(object sender, FileSystemEventArgs e)
+        {
+            // 現在のフォルダ内のディレクトリかチェック
+            var currentFolder = _currentPath.Peek();
+            var directoryName = Path.GetDirectoryName(e.FullPath);
+            
+            Debug.WriteLine($"Directory created: {e.FullPath}");
+            Debug.WriteLine($"Current folder: {currentFolder}");
+            Debug.WriteLine($"Directory parent: {directoryName}");
+            
+            // 現在のフォルダ内のディレクトリ、または現在のフォルダのサブディレクトリの場合
+            if (directoryName == currentFolder || e.FullPath.StartsWith(currentFolder))
+            {
+                Debug.WriteLine("Directory is in current folder or subfolder, updating notes list");
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    LoadNotes();
+                });
+            }
+            else
+            {
+                Debug.WriteLine("Directory is not in current folder, ignoring");
+            }
+        }
+
+        private void OnDirectoryDeleted(object sender, FileSystemEventArgs e)
+        {
+            // 現在のフォルダ内のディレクトリかチェック
+            var currentFolder = _currentPath.Peek();
+            if (Path.GetDirectoryName(e.FullPath) == currentFolder)
+            {
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    LoadNotes();
+                });
             }
         }
 
@@ -575,9 +688,18 @@ namespace AnkiPlus_MAUI
                 syncButton.Text = "同期中...";
 
                 var uid = App.CurrentUser.Uid;
+                
+                // 1. 通常のノート同期
                 await _cardSyncService.SyncAllNotesAsync(uid);
+                
+                // 2. 共有キーの同期
+                await _sharedKeyService.SyncSharedKeysAsync(uid);
 
-                await DisplayAlert("同期完了", "すべてのノートの同期が完了しました。", "OK");
+                await DisplayAlert("同期完了", "すべてのノートと共有キーの同期が完了しました。", "OK");
+                
+                // 同期完了後にノートリストを更新
+                Debug.WriteLine("同期完了、ノートリストを更新します");
+                LoadNotes();
             }
             catch (Exception ex)
             {
@@ -590,6 +712,47 @@ namespace AnkiPlus_MAUI
                 var syncButton = (Button)sender;
                 syncButton.IsEnabled = true;
                 syncButton.Text = "同期";
+            }
+        }
+
+        private async void OnSharedKeyImportClicked(object sender, EventArgs e)
+        {
+            try
+            {
+                var sharedKeyImportPage = new SharedKeyImportPage(_blobStorageService, _sharedKeyService, _cardSyncService);
+                
+                // インポート完了イベントをハンドリング
+                sharedKeyImportPage.ImportCompleted += (s, args) =>
+                {
+                    Debug.WriteLine("共有キーインポート完了、ノートリストを更新します");
+                    MainThread.BeginInvokeOnMainThread(() =>
+                    {
+                        LoadNotes();
+                    });
+                };
+                
+                await Navigation.PushAsync(sharedKeyImportPage);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"共有キーインポートページの表示に失敗: {ex.Message}");
+                await DisplayAlert("エラー", "共有キーインポートページの表示に失敗しました。", "OK");
+            }
+        }
+
+        protected override void OnDisappearing()
+        {
+            base.OnDisappearing();
+            
+            // ファイル監視のイベントハンドラーを解除
+            if (_fileWatcherService != null)
+            {
+                _fileWatcherService.FileCreated -= OnFileCreated;
+                _fileWatcherService.FileDeleted -= OnFileDeleted;
+                _fileWatcherService.FileChanged -= OnFileChanged;
+                _fileWatcherService.FileRenamed -= OnFileRenamed;
+                _fileWatcherService.DirectoryCreated -= OnDirectoryCreated;
+                _fileWatcherService.DirectoryDeleted -= OnDirectoryDeleted;
             }
         }
     }
