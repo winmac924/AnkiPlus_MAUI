@@ -64,7 +64,7 @@ namespace AnkiPlus_MAUI.Services
             return subFolder != null ? $"{uid}/{subFolder}" : uid;
         }
 
-        private (string subFolder, string noteName, bool isCard) ParseBlobPath(string blobPath)
+        public (string subFolder, string noteName, bool isCard) ParseBlobPath(string blobPath)
         {
             var parts = blobPath.Split('/');
             if (parts.Length < 3) return (null, null, false);
@@ -766,10 +766,9 @@ namespace AnkiPlus_MAUI.Services
                     Debug.WriteLine($"直下にcards.txtが存在するため、単一ノートとして処理: {folderPath}");
                     
                     // 単一ノートとしてダウンロード
-                    var noteName = Path.GetFileName(folderPath);
-                    var subFolder = Path.GetDirectoryName(folderPath);
-                    if (subFolder == "." || string.IsNullOrEmpty(subFolder))
-                        subFolder = null;
+                    var (subFolder, noteName, _) = ParseBlobPath($"{userId}/{folderPath}/cards.txt");
+                    
+                    Debug.WriteLine($"パース結果 - サブフォルダ: {subFolder}, ノート名: {noteName}");
                     
                     await DownloadSharedNoteAsync(userId, folderPath, noteName, subFolder);
                     downloadedNotes.Add((noteName, subFolder, folderPath));

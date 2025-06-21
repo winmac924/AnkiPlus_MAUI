@@ -124,10 +124,10 @@ namespace AnkiPlus_MAUI
                 else
                 {
                     // 単一ノートの場合
-                    var noteName = Path.GetFileName(_previewedNotePath);
-                    var subFolder = Path.GetDirectoryName(_previewedNotePath);
-                    if (subFolder == ".")
-                        subFolder = null;
+                    // ParseBlobPathメソッドを使用してサブフォルダとノート名を正しく分離
+                    var (subFolder, noteName, _) = _blobStorageService.ParseBlobPath(_previewedNotePath);
+                    
+                    Debug.WriteLine($"共有ノートインポート - パス: {_previewedNotePath}, サブフォルダ: {subFolder}, ノート名: {noteName}");
                     
                     var sharedInfo = new SharedKeyInfo
                     {
