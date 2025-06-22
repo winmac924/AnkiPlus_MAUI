@@ -48,8 +48,7 @@ namespace AnkiPlus_MAUI
             // ファイル監視イベントを設定
             SetupFileWatcher();
             
-            // ページが読み込まれた後にアップデートチェックを実行
-            Loaded += MainPage_Loaded;
+            // アップデートチェックは初回起動時のみApp.xaml.csで実行
 
             // 初期レイアウトの設定
             if (NotesCollectionView?.ItemsLayout is GridItemsLayout gridLayout)
@@ -169,26 +168,7 @@ namespace AnkiPlus_MAUI
             }
         }
 
-        private async void MainPage_Loaded(object sender, EventArgs e)
-        {
-            try
-            {
-                // 開発中はアップデートチェックをスキップ
-                if (!UpdateNotificationService.IsUpdateCheckEnabled)
-                {
-                    Debug.WriteLine("開発モード: アップデートチェックをスキップします");
-                    return;
-                }
 
-                // ページが読み込まれた後、少し遅延してからアップデートチェックを実行
-                await Task.Delay(5000);
-                await _updateService.CheckForUpdatesAsync();
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"アップデートチェック中にエラー: {ex.Message}");
-            }
-        }
 
         // ノートを読み込む
         private void LoadNotes()

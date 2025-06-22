@@ -76,7 +76,7 @@ namespace AnkiPlus_MAUI
         private void InitializeMainPage()
         {
             MainPage = new AppShell();
-            _ = CheckSavedLoginAsync();
+            _ = CheckSavedLoginAndUpdatesAsync();
         }
 
         private void CleanupBackupFiles()
@@ -132,7 +132,7 @@ namespace AnkiPlus_MAUI
             }
         }
 
-        private async Task CheckSavedLoginAsync()
+        private async Task CheckSavedLoginAndUpdatesAsync()
         {
             try
             {
@@ -151,10 +151,47 @@ namespace AnkiPlus_MAUI
                         });
                     }
                 }
+
+                // 初回起動時のみ更新確認を実行
+                await CheckForUpdatesOnFirstLaunchAsync();
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"保存されたログイン情報の確認中にエラー: {ex.Message}");
+            }
+        }
+
+        private async Task CheckForUpdatesOnFirstLaunchAsync()
+        {
+            try
+            {
+                // UpdateNotificationServiceをDIコンテナから取得
+                var updateService = Handler?.MauiContext?.Services?.GetService<UpdateNotificationService>();
+                
+                if (updateService != null)
+                {
+                    // アプリ起動時に毎回フラグをクリア（アプリを閉じるたびに更新確認を可能にする）
+                    await updateService.ClearFirstLaunchFlagAsync();
+                    
+                    // 開発中はアップデートチェックをスキップ
+                    if (!UpdateNotificationService.IsUpdateCheckEnabled)
+                    {
+                        Debug.WriteLine("開発モード: アップデートチェックをスキップします");
+                        return;
+                    }
+
+                    // 少し遅延してから初回起動時の更新確認を実行
+                    await Task.Delay(5000);
+                    await updateService.CheckForUpdatesOnFirstLaunchAsync();
+                }
+                else
+                {
+                    Debug.WriteLine("UpdateNotificationServiceが見つかりません");
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"初回起動時のアップデートチェック中にエラー: {ex.Message}");
             }
         }
 
@@ -196,6 +233,9 @@ namespace AnkiPlus_MAUI
             base.OnSleep();
             // アプリケーションがバックグラウンドに移行時にファイル監視を停止
             _fileWatcherService?.StopWatching();
+            
+            // アプリケーション終了時（または一時停止時）に初回起動フラグをクリア
+            _ = ClearFirstLaunchFlagOnExitAsync();
         }
 
         protected override void OnResume()
@@ -203,6 +243,22 @@ namespace AnkiPlus_MAUI
             base.OnResume();
             // アプリケーションがフォアグラウンドに戻った時にファイル監視を再開
             _fileWatcherService?.StartWatching();
+        }
+
+        private async Task ClearFirstLaunchFlagOnExitAsync()
+        {
+            try
+            {
+                var updateService = Handler?.MauiContext?.Services?.GetService<UpdateNotificationService>();
+                if (updateService != null)
+                {
+                    await updateService.ClearFirstLaunchFlagAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"アプリケーション終了時のフラグクリア中にエラー: {ex.Message}");
+            }
         }
     }
 }

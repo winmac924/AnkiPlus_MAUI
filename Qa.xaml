@@ -40,15 +40,6 @@
                     <VerticalStackLayout x:Name="BasicCardLayout"
                                          IsVisible="False"
                                          Spacing="10">
-                        <Label Text="基本・穴埋めカード"
-                               FontSize="20"
-                               HorizontalOptions="Center"
-                               FontAttributes="Bold">
-                            <Label.TextColor>
-                                <AppThemeBinding Light="{StaticResource TextLight}" 
-                                                Dark="{StaticResource TextDark}" />
-                            </Label.TextColor>
-                        </Label>
                         <Frame Padding="0" HasShadow="False" CornerRadius="8">
                             <Frame.BorderColor>
                                 <AppThemeBinding Light="{StaticResource BorderLight}" 
@@ -83,15 +74,6 @@
                     <VerticalStackLayout x:Name="ChoiceCardLayout"
                                          IsVisible="False"
                                          Spacing="10">
-                        <Label Text="選択肢問題"
-                               FontSize="20"
-                               HorizontalOptions="Center"
-                               FontAttributes="Bold">
-                            <Label.TextColor>
-                                <AppThemeBinding Light="{StaticResource TextLight}" 
-                                                Dark="{StaticResource TextDark}" />
-                            </Label.TextColor>
-                        </Label>
                         <Frame Padding="0" HasShadow="False" CornerRadius="8">
                             <Frame.BorderColor>
                                 <AppThemeBinding Light="{StaticResource BorderLight}" 
@@ -117,15 +99,6 @@
                     <VerticalStackLayout x:Name="ImageFillCardLayout"
                                          IsVisible="False"
                                          Spacing="10">
-                        <Label Text="画像穴埋めカード"
-                               FontSize="20"
-                               HorizontalOptions="Center"
-                               FontAttributes="Bold">
-                            <Label.TextColor>
-                                <AppThemeBinding Light="{StaticResource TextLight}" 
-                                                Dark="{StaticResource TextDark}" />
-                            </Label.TextColor>
-                        </Label>
                         <Frame Padding="5" HasShadow="False" CornerRadius="8">
                             <Frame.BackgroundColor>
                                 <AppThemeBinding Light="{StaticResource CanvasBackgroundLight}" 

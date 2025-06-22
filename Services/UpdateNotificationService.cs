@@ -7,11 +7,91 @@ public class UpdateNotificationService
     private readonly GitHubUpdateService _updateService;
     private readonly ILogger<UpdateNotificationService> _logger;
     private bool _isCheckingForUpdates = false;
+    private const string FirstLaunchKey = "FirstLaunchCompleted";
 
     public UpdateNotificationService(GitHubUpdateService updateService, ILogger<UpdateNotificationService> logger)
     {
         _updateService = updateService;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// 初回起動時のみ更新確認を実行
+    /// </summary>
+    public async Task CheckForUpdatesOnFirstLaunchAsync()
+    {
+        try
+        {
+            // 初回起動かどうかをチェック
+            var isFirstLaunch = await IsFirstLaunchAsync();
+            
+            if (!isFirstLaunch)
+            {
+                _logger.LogInformation("初回起動ではないため、更新確認をスキップします");
+                return;
+            }
+
+            _logger.LogInformation("初回起動を検出しました。更新確認を実行します");
+            
+            // 更新確認を実行
+            await CheckForUpdatesAsync();
+            
+            // 初回起動完了をマーク
+            await MarkFirstLaunchCompletedAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "初回起動時の更新確認中にエラーが発生しました");
+        }
+    }
+
+    /// <summary>
+    /// 初回起動かどうかを判定
+    /// </summary>
+    private async Task<bool> IsFirstLaunchAsync()
+    {
+        try
+        {
+            var firstLaunchCompleted = await SecureStorage.GetAsync(FirstLaunchKey);
+            return string.IsNullOrEmpty(firstLaunchCompleted);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "初回起動判定中にエラーが発生しました");
+            return true; // エラーの場合は初回起動として扱う
+        }
+    }
+
+    /// <summary>
+    /// 初回起動完了をマーク
+    /// </summary>
+    private async Task MarkFirstLaunchCompletedAsync()
+    {
+        try
+        {
+            await SecureStorage.SetAsync(FirstLaunchKey, DateTime.Now.ToString());
+            _logger.LogInformation("初回起動完了をマークしました");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "初回起動完了のマーク中にエラーが発生しました");
+        }
+    }
+
+    /// <summary>
+    /// 初回起動フラグをクリア（アプリケーション終了時に使用）
+    /// </summary>
+    public async Task ClearFirstLaunchFlagAsync()
+    {
+        try
+        {
+            SecureStorage.Remove(FirstLaunchKey);
+            _logger.LogInformation("初回起動フラグをクリアしました");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "初回起動フラグのクリア中にエラーが発生しました");
+        }
     }
 
     public async Task CheckForUpdatesAsync()
@@ -105,23 +185,36 @@ public class UpdateNotificationService
                 return;
             }
 
-            // ダウンロード開始の通知
-            await Application.Current.MainPage.DisplayAlert(
-                "📥 ダウンロード中",
-                "新しいバージョンをダウンロード中です...\nしばらくお待ちください。",
-                "OK"
-            );
+            // 進捗表示ページを作成して表示
+            var progressPage = new UpdateProgressPage();
+            await Application.Current.MainPage.Navigation.PushModalAsync(progressPage);
 
             _logger.LogInformation("アップデートのダウンロードを開始: {Url}", updateInfo.DownloadUrl);
             
             bool success = false;
             try
             {
-                success = await _updateService.DownloadAndInstallUpdateAsync(updateInfo.DownloadUrl);
+                // 進捗報告用のProgressオブジェクトを作成
+                var progress = new Progress<DownloadProgress>(p =>
+                {
+                    try
+                    {
+                        _logger.LogInformation("進捗報告: {Progress:P1} - {Status} - {Detail}", 
+                            p.ProgressPercentage, p.Status, p.Detail);
+                        progressPage.UpdateProgress(p.ProgressPercentage, p.Status, p.Detail);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "進捗報告中にエラーが発生しました");
+                    }
+                });
+
+                success = await _updateService.DownloadAndInstallUpdateAsync(updateInfo.DownloadUrl, progress);
             }
             catch (Exception downloadEx)
             {
                 _logger.LogError(downloadEx, "アップデートのダウンロード中に例外が発生しました");
+                progressPage.ShowError("ダウンロード中にエラーが発生しました", downloadEx.Message);
                 success = false;
             }
 
@@ -129,25 +222,47 @@ public class UpdateNotificationService
             {
                 // 成功の場合は、アプリが自動終了するので通知は不要
                 _logger.LogInformation("アップデート処理が正常に開始されました - アプリを終了します");
+                progressPage.ShowComplete(true, "アップデートが完了しました。アプリケーションを再起動します。");
+                
+                // 少し待ってからページを閉じる（ユーザーがメッセージを読む時間を確保）
+                await Task.Delay(2000);
             }
             else
             {
-                await Application.Current.MainPage.DisplayAlert(
-                    "❌ アップデート失敗",
-                    "アップデートに失敗しました。\n\n手動でアップデートしてください：\n1. GitHubリリースページにアクセス\n2. 最新の .exe ファイルをダウンロード\n3. 現在のファイルを置き換え",
-                    "OK"
+                progressPage.ShowError(
+                    "アップデートに失敗しました",
+                    "手動でアップデートしてください：\n1. GitHubリリースページにアクセス\n2. 最新の .exe ファイルをダウンロード\n3. 現在のファイルを置き換え"
                 );
+                
+                // エラーの場合は3秒後にページを閉じる
+                await Task.Delay(3000);
+                await Application.Current.MainPage.Navigation.PopModalAsync();
             }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "アップデートのダウンロード中にエラーが発生しました");
             
-            await Application.Current.MainPage.DisplayAlert(
-                "❌ アップデートエラー",
-                $"アップデート中にエラーが発生しました。\n\n手動でアップデートしてください：\n1. https://github.com/winmac924/AnkiPlus_MAUI/releases\n2. 最新の .exe ファイルをダウンロード\n3. 現在のファイルを置き換え\n\nエラー詳細: {ex.Message}",
-                "OK"
-            );
+            // 進捗ページが表示されている場合はエラーを表示
+            if (Application.Current.MainPage.Navigation.ModalStack.LastOrDefault() is UpdateProgressPage errorPage)
+            {
+                errorPage.ShowError(
+                    "アップデート中にエラーが発生しました",
+                    $"手動でアップデートしてください：\n1. https://github.com/winmac924/AnkiPlus_MAUI/releases\n2. 最新の .exe ファイルをダウンロード\n3. 現在のファイルを置き換え\n\nエラー詳細: {ex.Message}"
+                );
+                
+                await Task.Delay(3000);
+                await Application.Current.MainPage.Navigation.PopModalAsync();
+            }
+            else
+            {
+                // 進捗ページが表示されていない場合は従来の方法でエラーを表示
+                await Application.Current.MainPage.DisplayAlert(
+                    "❌ アップデートエラー",
+                    $"アップデート中にエラーが発生しました。\n\n手動でアップデートしてください：\n1. https://github.com/winmac924/AnkiPlus_MAUI/releases\n2. 最新の .exe ファイルをダウンロード\n3. 現在のファイルを置き換え\n\nエラー詳細: {ex.Message}",
+                    "OK"
+                );
+            }
         }
     }
 

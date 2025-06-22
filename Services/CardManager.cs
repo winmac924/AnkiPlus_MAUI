@@ -1059,15 +1059,31 @@ namespace AnkiPlus_MAUI.Services
                     try
                     {
                         var markdown = _frontTextEditor.Text ?? "";
-                        var html = ConvertMarkdownToHtml(markdown);
                         
-                        // フラッシュ防止: 更新前に透明化（スペースは保持）
-                        await _frontPreviewWebView.FadeTo(0, 50); // 50ms で透明化
-                        
-                        // 背景色を再設定してからHTMLを更新
-                        SetWebViewBackgroundColor(_frontPreviewWebView);
-                        _frontPreviewWebView.Source = new HtmlWebViewSource { Html = html };
-                        _frontPreviewReady = false; // ナビゲーション完了を待つ
+                        // JavaScript手法を使用：初回のみベースHTMLを設定
+                        if (!_frontPreviewReady)
+                        {
+                            var baseHtml = CreateBaseHtmlTemplate();
+                            SetWebViewBackgroundColor(_frontPreviewWebView);
+                            _frontPreviewWebView.Source = new HtmlWebViewSource { Html = baseHtml };
+                            _frontPreviewReady = true;
+                            
+                            // 少し遅延してからコンテンツを更新
+                            Device.StartTimer(TimeSpan.FromMilliseconds(300), () =>
+                            {
+                                MainThread.BeginInvokeOnMainThread(async () =>
+                                {
+                                    await UpdateWebViewContent(_frontPreviewWebView, markdown, false);
+                                    await _frontPreviewWebView.FadeTo(1, 150);
+                                });
+                                return false;
+                            });
+                        }
+                        else
+                        {
+                            // 2回目以降はコンテンツ部分のみ更新
+                            await UpdateWebViewContent(_frontPreviewWebView, markdown, false);
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -1102,15 +1118,31 @@ namespace AnkiPlus_MAUI.Services
                     try
                     {
                         var markdown = _backTextEditor.Text ?? "";
-                        var html = ConvertMarkdownToHtml(markdown);
                         
-                        // フラッシュ防止: 更新前に透明化（スペースは保持）
-                        await _backPreviewWebView.FadeTo(0, 50); // 50ms で透明化
-                        
-                        // 背景色を再設定してからHTMLを更新
-                        SetWebViewBackgroundColor(_backPreviewWebView);
-                        _backPreviewWebView.Source = new HtmlWebViewSource { Html = html };
-                        _backPreviewReady = false; // ナビゲーション完了を待つ
+                        // JavaScript手法を使用：初回のみベースHTMLを設定
+                        if (!_backPreviewReady)
+                        {
+                            var baseHtml = CreateBaseHtmlTemplate();
+                            SetWebViewBackgroundColor(_backPreviewWebView);
+                            _backPreviewWebView.Source = new HtmlWebViewSource { Html = baseHtml };
+                            _backPreviewReady = true;
+                            
+                            // 少し遅延してからコンテンツを更新
+                            Device.StartTimer(TimeSpan.FromMilliseconds(300), () =>
+                            {
+                                MainThread.BeginInvokeOnMainThread(async () =>
+                                {
+                                    await UpdateWebViewContent(_backPreviewWebView, markdown, false);
+                                    await _backPreviewWebView.FadeTo(1, 150);
+                                });
+                                return false;
+                            });
+                        }
+                        else
+                        {
+                            // 2回目以降はコンテンツ部分のみ更新
+                            await UpdateWebViewContent(_backPreviewWebView, markdown, false);
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -1145,15 +1177,31 @@ namespace AnkiPlus_MAUI.Services
                     try
                     {
                         var markdown = _choiceQuestion.Text ?? "";
-                        var html = ConvertMarkdownToHtml(markdown);
                         
-                        // フラッシュ防止: 更新前に透明化（スペースは保持）
-                        await _choiceQuestionPreviewWebView.FadeTo(0, 50); // 50ms で透明化
-                        
-                        // 背景色を再設定してからHTMLを更新
-                        SetWebViewBackgroundColor(_choiceQuestionPreviewWebView);
-                        _choiceQuestionPreviewWebView.Source = new HtmlWebViewSource { Html = html };
-                        _choiceQuestionPreviewReady = false; // ナビゲーション完了を待つ
+                        // JavaScript手法を使用：初回のみベースHTMLを設定
+                        if (!_choiceQuestionPreviewReady)
+                        {
+                            var baseHtml = CreateBaseHtmlTemplate();
+                            SetWebViewBackgroundColor(_choiceQuestionPreviewWebView);
+                            _choiceQuestionPreviewWebView.Source = new HtmlWebViewSource { Html = baseHtml };
+                            _choiceQuestionPreviewReady = true;
+                            
+                            // 少し遅延してからコンテンツを更新
+                            Device.StartTimer(TimeSpan.FromMilliseconds(300), () =>
+                            {
+                                MainThread.BeginInvokeOnMainThread(async () =>
+                                {
+                                    await UpdateWebViewContent(_choiceQuestionPreviewWebView, markdown, false);
+                                    await _choiceQuestionPreviewWebView.FadeTo(1, 150);
+                                });
+                                return false;
+                            });
+                        }
+                        else
+                        {
+                            // 2回目以降はコンテンツ部分のみ更新
+                            await UpdateWebViewContent(_choiceQuestionPreviewWebView, markdown, false);
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -1188,15 +1236,31 @@ namespace AnkiPlus_MAUI.Services
                     try
                     {
                         var markdown = _choiceQuestionExplanation.Text ?? "";
-                        var html = ConvertMarkdownToHtml(markdown);
                         
-                        // フラッシュ防止: 更新前に透明化（スペースは保持）
-                        await _choiceExplanationPreviewWebView.FadeTo(0, 50); // 50ms で透明化
-                        
-                        // 背景色を再設定してからHTMLを更新
-                        SetWebViewBackgroundColor(_choiceExplanationPreviewWebView);
-                        _choiceExplanationPreviewWebView.Source = new HtmlWebViewSource { Html = html };
-                        _choiceExplanationPreviewReady = false; // ナビゲーション完了を待つ
+                        // JavaScript手法を使用：初回のみベースHTMLを設定
+                        if (!_choiceExplanationPreviewReady)
+                        {
+                            var baseHtml = CreateBaseHtmlTemplate();
+                            SetWebViewBackgroundColor(_choiceExplanationPreviewWebView);
+                            _choiceExplanationPreviewWebView.Source = new HtmlWebViewSource { Html = baseHtml };
+                            _choiceExplanationPreviewReady = true;
+                            
+                            // 少し遅延してからコンテンツを更新
+                            Device.StartTimer(TimeSpan.FromMilliseconds(300), () =>
+                            {
+                                MainThread.BeginInvokeOnMainThread(async () =>
+                                {
+                                    await UpdateWebViewContent(_choiceExplanationPreviewWebView, markdown, false);
+                                    await _choiceExplanationPreviewWebView.FadeTo(1, 150);
+                                });
+                                return false;
+                            });
+                        }
+                        else
+                        {
+                            // 2回目以降はコンテンツ部分のみ更新
+                            await UpdateWebViewContent(_choiceExplanationPreviewWebView, markdown, false);
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -3146,7 +3210,6 @@ namespace AnkiPlus_MAUI.Services
                         font-size: 18px; 
                         font-family: Arial, sans-serif; 
                         line-height: 1.5; 
-                        white-space: pre-line; 
                         background-color: {backgroundColor} !important; 
                         color: {textColor}; 
                         margin: 0; 
@@ -3795,5 +3858,314 @@ namespace AnkiPlus_MAUI.Services
                 }
             }
         }
+
+        /// <summary>
+        /// ベースHTMLテンプレートを作成（JavaScript機能付き）
+        /// </summary>
+        private string CreateBaseHtmlTemplate()
+        {
+            var isDarkMode = Application.Current?.RequestedTheme == AppTheme.Dark;
+            var backgroundColor = isDarkMode ? "#1E1E1E" : "#FFFFFF";
+            var textColor = isDarkMode ? "#FFFFFF" : "#000000";
+            var codeBackground = isDarkMode ? "#2D2D30" : "#F5F5F5";
+            var redColor = isDarkMode ? "#FF6B6B" : "red";
+            
+            return $@"
+            <html>
+            <head>
+                <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+                <style>
+                    body {{ 
+                        font-size: 18px; 
+                        font-family: Arial, sans-serif; 
+                        line-height: 1.5; 
+                        background-color: {backgroundColor};
+                        color: {textColor};
+                        margin: 10px;
+                        padding: 10px;
+                        min-height: 100vh;
+                    }}
+                    sup {{ vertical-align: super; font-size: smaller; }}
+                    sub {{ vertical-align: sub; font-size: smaller; }}
+                    img {{ 
+                        display: block; 
+                        margin: 10px 0; 
+                        border-radius: 8px;
+                        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+                        max-height: 150px;
+                    }}
+                    code {{
+                        background-color: {codeBackground};
+                        padding: 2px 4px;
+                        border-radius: 4px;
+                        font-family: 'Courier New', monospace;
+                    }}
+                    pre {{
+                        background-color: {codeBackground};
+                        padding: 10px;
+                        border-radius: 8px;
+                        overflow-x: auto;
+                    }}
+                    .blank-placeholder {{
+                        min-width: 20px;
+                        display: inline-block;
+                    }}
+                    #main-content {{
+                        opacity: 1;
+                        transition: opacity 0.3s ease;
+                    }}
+                    .loading {{
+                        opacity: 0.5;
+                    }}
+                    p {{
+                        margin: 0 0 10px 0;
+                        padding: 0;
+                    }}
+                    p:last-child {{
+                        margin-bottom: 0;
+                    }}
+                </style>
+                <script>
+                    function updateContent(content) {{
+                        var mainContent = document.getElementById('main-content');
+                        if (mainContent) {{
+                            mainContent.innerHTML = content;
+                        }}
+                    }}
+                    
+                    function showAllAnswers() {{
+                        var blanks = document.querySelectorAll('.blank-placeholder');
+                        blanks.forEach(function(blank) {{
+                            var answer = blank.getAttribute('data-answer');
+                            if (answer) {{
+                                blank.textContent = answer;
+                                blank.style.color = '{redColor}';
+                            }}
+                        }});
+                    }}
+                    
+                    function showAnswer(blankId, answer) {{
+                        var element = document.getElementById(blankId);
+                        if (element) {{
+                            element.textContent = answer;
+                            element.style.color = '{redColor}';
+                        }}
+                    }}
+                    
+                    function insertText(elementId, text) {{
+                        var element = document.getElementById(elementId);
+                        if (element) {{
+                            element.innerHTML = text;
+                        }}
+                    }}
+                    
+                    function setLoading(isLoading) {{
+                        var mainContent = document.getElementById('main-content');
+                        if (isLoading) {{
+                            mainContent.classList.add('loading');
+                        }} else {{
+                            mainContent.classList.remove('loading');
+                        }}
+                    }}
+                </script>
+            </head>
+            <body>
+                <div id='main-content'>読み込み中...</div>
+            </body>
+            </html>";
+        }
+
+        /// <summary>
+        /// コンテンツ部分のみのHTMLを生成
+        /// </summary>
+        private string ConvertToContentHtml(string text, bool showAnswer = false)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return "";
+
+            // 画像タグを最初に処理
+            var matches = Regex.Matches(text, @"<<img_.*?\.jpg>>");
+            Debug.WriteLine($"画像タグ数: {matches.Count}");
+            foreach (Match match in matches)
+            {
+                string imgFileName = match.Value.Trim('<', '>');
+                string imgPath = Path.Combine(_tempExtractPath, "img", imgFileName);
+
+                if (File.Exists(imgPath))
+                {
+                    string base64Image = ConvertImageToBase64(imgPath);
+                    if (base64Image != null)
+                    {
+                        text = text.Replace(match.Value, $"<img src={base64Image} style=max-height:150px; />");
+                    }
+                    else
+                    {
+                        text = text.Replace(match.Value, $"[画像が見つかりません: {imgFileName}]");
+                    }
+                }
+                else
+                {
+                    text = text.Replace(match.Value, $"[画像が見つかりません: {imgFileName}]");
+                }
+            }
+
+            // 穴埋め表示処理（JavaScript操作用のIDを付与）
+            var isDarkMode = Application.Current?.RequestedTheme == AppTheme.Dark;
+            var redColor = isDarkMode ? "#FF6B6B" : "red";
+            
+            int blankCounter = 0;
+            if (showAnswer)
+            {
+                // 解答表示時は `<<blank|文字>>` → `(文字)`
+                text = Regex.Replace(text, @"<<blank\|(.*?)>>", match =>
+                {
+                    blankCounter++;
+                    var answer = match.Groups[1].Value;
+                    return $"(<span id='blank_{blankCounter}' style='color:{redColor};'>{answer}</span>)";
+                });
+            }
+            else
+            {
+                // 問題表示時は `<<blank|文字>>` → `( )` （後でJavaScriptで操作可能）
+                text = Regex.Replace(text, @"<<blank\|(.*?)>>", match =>
+                {
+                    blankCounter++;
+                    var answer = match.Groups[1].Value;
+                    return $"(<span id='blank_{blankCounter}' data-answer='{HttpUtility.HtmlEncode(answer)}' class='blank-placeholder'> </span>)";
+                });
+            }
+
+            // 改行の正規化と段落処理
+            text = text.Replace("\r\n", "\n").Replace("\r", "\n");
+            
+            // 穴埋めのspanタグとimgタグを一時的に保護
+            var protectedElements = new List<string>();
+            int elementIndex = 0;
+            
+            // spanタグを保護
+            text = Regex.Replace(text, @"<span[^>]*>.*?</span>", match =>
+            {
+                var placeholder = $"__ELEMENT_PLACEHOLDER_{elementIndex}__";
+                protectedElements.Add(match.Value);
+                elementIndex++;
+                return placeholder;
+            });
+            
+            // imgタグを保護
+            text = Regex.Replace(text, @"<img[^>]*>", match =>
+            {
+                var placeholder = $"__ELEMENT_PLACEHOLDER_{elementIndex}__";
+                protectedElements.Add(match.Value);
+                elementIndex++;
+                return placeholder;
+            });
+
+            // HTML エスケープ
+            text = HttpUtility.HtmlEncode(text);
+
+            // 保護された要素を復元
+            for (int i = 0; i < protectedElements.Count; i++)
+            {
+                text = text.Replace($"__ELEMENT_PLACEHOLDER_{i}__", protectedElements[i]);
+            }
+
+            // 太字変換
+            text = Regex.Replace(text, @"\*\*(.*?)\*\*", "<b>$1</b>");
+
+            // ダークモード対応の色変換
+            var blueColor = isDarkMode ? "#6BB6FF" : "blue";
+            var greenColor = isDarkMode ? "#90EE90" : "green";
+            var yellowColor = isDarkMode ? "#FFD700" : "yellow";
+            var purpleColor = isDarkMode ? "#DA70D6" : "purple";
+            var orangeColor = isDarkMode ? "#FFA500" : "orange";
+            
+            text = Regex.Replace(text, @"\{\{red\|(.*?)\}\}", $"<span style='color:{redColor};'>$1</span>");
+            text = Regex.Replace(text, @"\{\{blue\|(.*?)\}\}", $"<span style='color:{blueColor};'>$1</span>");
+            text = Regex.Replace(text, @"\{\{green\|(.*?)\}\}", $"<span style='color:{greenColor};'>$1</span>");
+            text = Regex.Replace(text, @"\{\{yellow\|(.*?)\}\}", $"<span style='color:{yellowColor};'>$1</span>");
+            text = Regex.Replace(text, @"\{\{purple\|(.*?)\}\}", $"<span style='color:{purpleColor};'>$1</span>");
+            text = Regex.Replace(text, @"\{\{orange\|(.*?)\}\}", $"<span style='color:{orangeColor};'>$1</span>");
+
+            // 上付き・下付き変換
+            text = Regex.Replace(text, @"\^\^(.*?)\^\^", "<sup>$1</sup>");
+            text = Regex.Replace(text, @"~~(.*?)~~", "<sub>$1</sub>");
+
+            // 必要な部分だけデコード処理
+            text = Regex.Replace(text, @"&lt;img(.*?)&gt;", "<img$1>");
+            text = Regex.Replace(text, @"&lt;span(.*?)&gt;", "<span$1>");
+            text = Regex.Replace(text, @"&lt;/span&gt;", "</span>");
+
+            // 改行処理：連続する空行を段落として処理
+            var lines = text.Split('\n');
+            var processedLines = new List<string>();
+            
+            for (int i = 0; i < lines.Length; i++)
+            {
+                var line = lines[i].Trim();
+                
+                if (string.IsNullOrEmpty(line))
+                {
+                    // 空行の場合、段落区切りとして処理
+                    if (processedLines.Count > 0 && !processedLines.Last().EndsWith("</p>"))
+                    {
+                        processedLines.Add("</p><p>");
+                    }
+                }
+                else
+                {
+                    // 最初の行の場合はpタグで開始
+                    if (processedLines.Count == 0)
+                    {
+                        processedLines.Add("<p>" + line);
+                    }
+                    else if (processedLines.Last().EndsWith("</p><p>"))
+                    {
+                        // 新しい段落の最初の行
+                        processedLines[processedLines.Count - 1] = processedLines.Last() + line;
+                    }
+                    else
+                    {
+                        // 同じ段落内での改行
+                        processedLines.Add("<br>" + line);
+                    }
+                }
+            }
+            
+            // 最後にpタグを閉じる
+            if (processedLines.Count > 0 && !processedLines.Last().EndsWith("</p>"))
+            {
+                processedLines.Add("</p>");
+            }
+            
+            text = string.Join("", processedLines);
+
+            return text;
+        }
+
+        /// <summary>
+        /// WebViewのコンテンツ部分のみを更新
+        /// </summary>
+        private async Task UpdateWebViewContent(WebView webView, string text, bool showAnswer = false)
+        {
+            try
+            {
+                var contentHtml = ConvertToContentHtml(text, showAnswer);
+                var escapedContent = contentHtml.Replace("'", "\\'").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "");
+                
+                await webView.EvaluateJavaScriptAsync($"updateContent('{escapedContent}');");
+                Debug.WriteLine("WebViewコンテンツ更新完了");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"WebViewコンテンツ更新エラー: {ex.Message}");
+                // フォールバック：HTML全体を再読み込み
+                var fullHtml = ConvertMarkdownToHtml(text);
+                webView.Source = new HtmlWebViewSource { Html = fullHtml };
+            }
+        }
+
+        /// <summary>
+        /// WebView初期化フラグ
+        /// </summary>
+        private bool _webViewInitialized = false;
     }
 } 

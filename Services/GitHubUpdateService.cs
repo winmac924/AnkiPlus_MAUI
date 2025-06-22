@@ -150,7 +150,7 @@ public class GitHubUpdateService
         }
     }
 
-    public async Task<bool> DownloadAndInstallUpdateAsync(string downloadUrl)
+    public async Task<bool> DownloadAndInstallUpdateAsync(string downloadUrl, IProgress<DownloadProgress>? progress = null)
     {
         try
         {
@@ -159,48 +159,128 @@ public class GitHubUpdateService
             var fileName = Path.GetFileName(new Uri(downloadUrl).LocalPath);
             var tempPath = Path.Combine(Path.GetTempPath(), fileName);
             
+            progress?.Report(new DownloadProgress 
+            { 
+                Status = "ダウンロードを開始しています...",
+                ProgressPercentage = 0,
+                Detail = $"ファイル: {fileName}"
+            });
+            
+            // タイムアウト設定（5分）
+            using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+            
             // プログレス付きダウンロード
-            using var response = await _httpClient.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead);
+            using var response = await _httpClient.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead, cts.Token);
             response.EnsureSuccessStatusCode();
             
             var totalBytes = response.Content.Headers.ContentLength ?? 0;
             var downloadedBytes = 0L;
+            
+            progress?.Report(new DownloadProgress 
+            { 
+                Status = "ファイルをダウンロード中...",
+                ProgressPercentage = 0,
+                Detail = $"サイズ: {FormatBytes(totalBytes)}"
+            });
             
             using var contentStream = await response.Content.ReadAsStreamAsync();
             using var fileStream = new FileStream(tempPath, FileMode.Create, FileAccess.Write);
             
             var buffer = new byte[8192];
             int bytesRead;
+            var lastProgressReport = DateTime.Now;
             
-            while ((bytesRead = await contentStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+            _logger.LogInformation("ダウンロード開始: 合計サイズ {TotalBytes} bytes", totalBytes);
+            
+            while ((bytesRead = await contentStream.ReadAsync(buffer, 0, buffer.Length, cts.Token)) > 0)
             {
-                await fileStream.WriteAsync(buffer, 0, bytesRead);
-                downloadedBytes += bytesRead;
-                
-                if (totalBytes > 0)
+                try
                 {
-                    var progress = (double)downloadedBytes / totalBytes * 100;
-                    _logger.LogDebug("ダウンロード進行状況: {Progress:F1}%", progress);
+                    await fileStream.WriteAsync(buffer, 0, bytesRead, cts.Token);
+                    downloadedBytes += bytesRead;
+                    
+                    // 進捗報告を1秒に1回に制限してパフォーマンスを改善
+                    var now = DateTime.Now;
+                    if ((now - lastProgressReport).TotalSeconds >= 1.0 || downloadedBytes == totalBytes)
+                    {
+                        if (totalBytes > 0)
+                        {
+                            var progressPercentage = (double)downloadedBytes / totalBytes;
+                            _logger.LogInformation("ダウンロード進行状況: {Progress:F1}% ({Downloaded}/{Total})", 
+                                progressPercentage * 100, FormatBytes(downloadedBytes), FormatBytes(totalBytes));
+                            
+                            progress?.Report(new DownloadProgress 
+                            { 
+                                Status = "ファイルをダウンロード中...",
+                                ProgressPercentage = progressPercentage,
+                                Detail = $"{FormatBytes(downloadedBytes)} / {FormatBytes(totalBytes)}"
+                            });
+                        }
+                        else
+                        {
+                            _logger.LogInformation("ダウンロード進行中: {Downloaded} bytes", FormatBytes(downloadedBytes));
+                            
+                            progress?.Report(new DownloadProgress 
+                            { 
+                                Status = "ファイルをダウンロード中...",
+                                ProgressPercentage = 0.5, // サイズ不明の場合は50%で固定
+                                Detail = $"{FormatBytes(downloadedBytes)} ダウンロード済み"
+                            });
+                        }
+                        lastProgressReport = now;
+                    }
+                }
+                catch (Exception writeEx)
+                {
+                    _logger.LogError(writeEx, "ファイル書き込み中にエラーが発生しました");
+                    throw;
                 }
             }
             
+            _logger.LogInformation("ダウンロードループ完了: {TotalDownloaded} bytes", downloadedBytes);
+            
             _logger.LogInformation("ダウンロード完了: {Path}", tempPath);
+            
+            progress?.Report(new DownloadProgress 
+            { 
+                Status = "ダウンロード完了。インストールを準備中...",
+                ProgressPercentage = 1.0,
+                Detail = "ファイルの準備中"
+            });
             
             // EXEファイルの場合、直接実行
             if (fileName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
             {
+                progress?.Report(new DownloadProgress 
+                { 
+                    Status = "アップデートをインストール中...",
+                    ProgressPercentage = 1.0,
+                    Detail = "アプリケーションを更新しています"
+                });
                 return await InstallExeAsync(tempPath);
             }
 
             // MSIXファイルの場合、直接インストール
             if (fileName.EndsWith(".msix", StringComparison.OrdinalIgnoreCase))
             {
+                progress?.Report(new DownloadProgress 
+                { 
+                    Status = "MSIXパッケージをインストール中...",
+                    ProgressPercentage = 1.0,
+                    Detail = "パッケージを更新しています"
+                });
                 return await InstallMsixAsync(tempPath);
             }
             
             // ZIPファイルの場合、解凍して実行ファイルを探す
             if (fileName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
             {
+                progress?.Report(new DownloadProgress 
+                { 
+                    Status = "ZIPファイルを展開中...",
+                    ProgressPercentage = 1.0,
+                    Detail = "ファイルを展開しています"
+                });
                 return await ExtractAndInstallFromZipAsync(tempPath);
             }
             
@@ -211,6 +291,19 @@ public class GitHubUpdateService
             _logger.LogError(ex, "アップデートのダウンロード・インストール中にエラーが発生しました");
             return false;
         }
+    }
+
+    private string FormatBytes(long bytes)
+    {
+        string[] sizes = { "B", "KB", "MB", "GB" };
+        double len = bytes;
+        int order = 0;
+        while (len >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            len = len / 1024;
+        }
+        return $"{len:0.##} {sizes[order]}";
     }
 
     private async Task<bool> InstallExeAsync(string exePath)
@@ -401,4 +494,11 @@ public class GitHubAsset
     public string BrowserDownloadUrl { get; set; } = string.Empty;
     public long Size { get; set; }
     public string ContentType { get; set; } = string.Empty;
+}
+
+public class DownloadProgress
+{
+    public string Status { get; set; } = string.Empty;
+    public double ProgressPercentage { get; set; }
+    public string Detail { get; set; } = string.Empty;
 } 

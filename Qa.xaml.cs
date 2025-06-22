@@ -16,14 +16,19 @@ namespace AnkiPlus_MAUI
         private string cardsFilePath;
         private string tempExtractPath;
         private List<CardData> cards = new List<CardData>();
+        private List<CardData> sortedCards = new List<CardData>();
         private int currentIndex = 0;
         private int correctCount = 0;
         private int incorrectCount = 0;
+        private System.Timers.Timer reviewTimer;
+        private bool webViewInitialized = false;  // WebViewが初期化済みかのフラグ
+        private Services.LearningResultSyncService _learningResultSyncService;
         // クラスの先頭で変数を宣言
         private string selectedImagePath = "";
         private List<SKRect> selectionRects = new List<SKRect>();
         // 各問題ごとの正解・不正解回数を管理
         private Dictionary<int, CardResult> results = new Dictionary<int, CardResult>();
+        private Dictionary<string, LearningRecord> learningRecords = new Dictionary<string, LearningRecord>();
         private bool showAnswer = false;  // 解答表示フラグ
         private string frontText = "";
 
@@ -82,15 +87,43 @@ namespace AnkiPlus_MAUI
             public int OriginalQuestionNumber { get; set; }  // 元の問題番号を保持
         }
 
+        // iOS版と同じ学習記録構造体
+        private class LearningRecord
+        {
+            public string CardId { get; set; }
+            public int CorrectCount { get; set; }
+            public int IncorrectCount { get; set; }
+            public DateTime NextReviewDate { get; set; }
+            public bool? LastResult { get; set; }  // true: 正解, false: 不正解, null: 未学習
+
+            public LearningRecord(string cardId)
+            {
+                CardId = cardId;
+                CorrectCount = 0;
+                IncorrectCount = 0;
+                NextReviewDate = DateTime.Now;
+                LastResult = null;
+            }
+        }
+
         public Qa(string cardsPath, string tempPath)
         {
             InitializeComponent();
             // 一時フォルダ
             tempExtractPath = tempPath;
             cardsFilePath = Path.Combine(tempExtractPath, "cards.txt");
+            
+            // 学習記録同期サービスを初期化
+            var blobStorageService = new Services.BlobStorageService();
+            _learningResultSyncService = new Services.LearningResultSyncService(blobStorageService);
+            
             LoadCards();
+            LoadAndSortCards();
             InitializeTheme();
             DisplayCard();
+            
+            // アプリ起動時の同期を実行
+            _ = InitializeLearningResultSync();
         }
 
         public Qa(List<string> cardsList)
@@ -102,6 +135,7 @@ namespace AnkiPlus_MAUI
 
             // 新形式ではこのコンストラクタは使わない想定ですが、空リストで初期化
             cards = new List<CardData>();
+            LoadAndSortCards();
             Debug.WriteLine($"Loaded {cards.Count} cards");
             InitializeTheme();
             DisplayCard();
@@ -134,6 +168,7 @@ namespace AnkiPlus_MAUI
             base.OnAppearing();
             CanvasView.InvalidateSurface();
             LoadResultsFromFile();
+            StartReviewTimer();
         }
 
         protected override void OnDisappearing()
@@ -143,6 +178,82 @@ namespace AnkiPlus_MAUI
             if (Application.Current != null)
             {
                 Application.Current.RequestedThemeChanged -= OnRequestedThemeChanged;
+            }
+            StopReviewTimer();
+            
+            // 学習セッション終了時の同期
+            _ = FinalizeLearningResultSync();
+        }
+
+        private async Task InitializeLearningResultSync()
+        {
+            try
+            {
+                if (App.CurrentUser != null && _learningResultSyncService != null)
+                {
+                    // ノート名を取得（tempExtractPathから抽出）
+                    var noteName = GetNoteNameFromTempPath();
+                    if (!string.IsNullOrEmpty(noteName))
+                    {
+                        await _learningResultSyncService.SyncOnAppStartAsync(App.CurrentUser.Uid, noteName);
+                        Debug.WriteLine($"学習記録同期を初期化: {noteName}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"学習記録同期の初期化エラー: {ex.Message}");
+            }
+        }
+
+        private async Task FinalizeLearningResultSync()
+        {
+            try
+            {
+                if (App.CurrentUser != null && _learningResultSyncService != null)
+                {
+                    var noteName = GetNoteNameFromTempPath();
+                    if (!string.IsNullOrEmpty(noteName))
+                    {
+                        await _learningResultSyncService.SyncOnSessionEndAsync(App.CurrentUser.Uid, noteName);
+                        Debug.WriteLine($"学習セッション終了時の同期完了: {noteName}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"学習セッション終了時の同期エラー: {ex.Message}");
+            }
+        }
+
+        private string GetNoteNameFromTempPath()
+        {
+            try
+            {
+                // tempExtractPathから ノート名_temp の部分を抽出
+                var dirName = Path.GetFileName(tempExtractPath);
+                if (dirName.EndsWith("_temp"))
+                {
+                    return dirName.Substring(0, dirName.Length - 5); // "_temp"を除去
+                }
+                return null;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"ノート名の抽出エラー: {ex.Message}");
+                return null;
+            }
+        }
+
+        private void UpdateSyncFlag()
+        {
+            try
+            {
+                _learningResultSyncService?.OnQuestionAnswered();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"同期フラグ更新エラー: {ex.Message}");
             }
         }
 
@@ -168,49 +279,54 @@ namespace AnkiPlus_MAUI
                     if (card != null) cards.Add(card);
                 }
             }
+            
+            Debug.WriteLine($"Loaded {cards.Count} cards");
         }
         // 結果ファイルを読み込む
         private void LoadResultsFromFile()
         {
             try
             {
-                string resultsFilePath = Path.Combine(tempExtractPath, "results.txt");
+                string resultFilePath = Path.Combine(tempExtractPath, "result.txt");
 
-                if (File.Exists(resultsFilePath))
+                if (File.Exists(resultFilePath))
                 {
-                    var lines = File.ReadAllLines(resultsFilePath);
-                    // results.Clear();  // 既存の結果をクリアしない
+                    var lines = File.ReadAllLines(resultFilePath);
 
                     foreach (var line in lines)
                     {
+                        if (string.IsNullOrWhiteSpace(line)) continue;
+                        
                         var parts = line.Split('|');
-                        if (parts.Length >= 2)
+                        if (parts.Length >= 3)
                         {
-                            if (int.TryParse(parts[0].Trim(), out int questionNumber))
+                            // UUIDから対応するカードを検索
+                            if (Guid.TryParse(parts[0].Trim(), out Guid cardGuid))
                             {
-                                // 問題番号を0ベースのインデックスに変換
-                                int questionIndex = questionNumber - 1;
-
-                                // 表示されている問題のみ結果を読み込む
-                                if (questionIndex < cards.Count)
+                                string cardId = cardGuid.ToString();
+                                // カードのIDと一致するものを探す
+                                var matchingCard = cards.FirstOrDefault(c => c.id == cardId);
+                                if (matchingCard != null)
                                 {
-                                    // 既存の結果を保持
+                                    int cardIndex = cards.IndexOf(matchingCard);
+                                    int questionNumber = cardIndex + 1;
+
                                     if (!results.ContainsKey(questionNumber))
                                     {
                                         results[questionNumber] = new CardResult { OriginalQuestionNumber = questionNumber };
                                     }
 
-                                    // 基本情報の解析
-                                    var basicInfo = parts[1].Trim();
-                                    results[questionNumber].WasCorrect = basicInfo.Contains("正解");
+                                    // 正解・不正解の解析
+                                    var resultInfo = parts[1].Trim();
+                                    results[questionNumber].WasCorrect = resultInfo == "正解";
 
                                     // 次回表示時間の解析
-                                    if (parts.Length > 2 && DateTime.TryParse(parts[2], out DateTime nextReview))
+                                    if (DateTime.TryParse(parts[2].Trim(), out DateTime nextReview))
                                     {
                                         results[questionNumber].NextReviewTime = nextReview;
                                     }
 
-                                    Debug.WriteLine($"問題 {questionNumber} の結果を読み込み: {(results[questionNumber].WasCorrect ? "正解" : "不正解")}");
+                                    Debug.WriteLine($"カード {cardId} (問題 {questionNumber}) の結果を読み込み: {(results[questionNumber].WasCorrect ? "正解" : "不正解")}");
                                 }
                             }
                         }
@@ -227,23 +343,23 @@ namespace AnkiPlus_MAUI
         {
             try
             {
-                if (cards == null || !cards.Any())
+                Debug.WriteLine($"DisplayCard開始 - sortedCards.Count: {sortedCards?.Count ?? 0}, currentIndex: {currentIndex}");
+                
+                if (sortedCards == null || !sortedCards.Any())
                 {
                     Debug.WriteLine("No cards available");
                     return;
                 }
 
-                if (currentIndex >= cards.Count)
+                if (currentIndex >= sortedCards.Count)
                 {
                     Debug.WriteLine("すべての問題が出題されました");
-                    // 完了メッセージを表示
-                    DisplayAlert("完了", "すべての問題が出題されました。", "OK");
-                    // 前のページに戻る
-                    Navigation.PopAsync();
+                    // 復習が必要なカードがあるかチェック
+                    ShowReviewNeededCards();
                     return;
                 }
 
-                var card = cards[currentIndex];
+                var card = sortedCards[currentIndex];
                 Debug.WriteLine($"Current card id: {card.id}, type: {card.type}");
 
                 // レイアウトの初期化
@@ -341,16 +457,55 @@ namespace AnkiPlus_MAUI
                 }
             }
 
-            // 表面と裏面のプレビュー表示
+            // WebViewを初期化（初回のみベースHTMLを読み込み）
+            if (!webViewInitialized)
+            {
+                var baseHtml = CreateBaseHtmlTemplate();
             FrontPreviewWebView.Source = new HtmlWebViewSource
             {
-                Html = ConvertMarkdownToHtml(frontText, showAnswer: false)
-            };
+                    Html = baseHtml
+                };
+                webViewInitialized = true;
+                
+                // 少し遅延してからコンテンツを更新
+                Device.StartTimer(TimeSpan.FromMilliseconds(500), () =>
+                {
+                    MainThread.BeginInvokeOnMainThread(async () =>
+                    {
+                        await UpdateWebViewContent(FrontPreviewWebView, frontText, false);
+                    });
+                    return false;
+                });
+            }
+            else
+            {
+                // 2回目以降はコンテンツ部分のみ更新
+                MainThread.BeginInvokeOnMainThread(async () =>
+                {
+                    await UpdateWebViewContent(FrontPreviewWebView, frontText, false);
+                });
+            }
 
+            // 裏面が空でない場合のみWebViewを設定
+            if (!string.IsNullOrWhiteSpace(backText))
+            {
+                // 裏面WebViewも同様に初期化
+                var baseHtml = CreateBaseHtmlTemplate();
             BackPreviewWebView.Source = new HtmlWebViewSource
             {
-                Html = ConvertMarkdownToHtml(backText, showAnswer: false)
-            };
+                    Html = baseHtml
+                };
+                
+                // 少し遅延してからコンテンツを更新
+                Device.StartTimer(TimeSpan.FromMilliseconds(600), () =>
+                {
+                    MainThread.BeginInvokeOnMainThread(async () =>
+                    {
+                        await UpdateWebViewContent(BackPreviewWebView, backText, false);
+                    });
+                    return false;
+                });
+            }
 
             BackPreviewFrame.IsVisible = false;
         }
@@ -364,10 +519,22 @@ namespace AnkiPlus_MAUI
 
             var (question, explanation, choices, isCorrectFlags) = ParseChoiceCard(card);
 
+            // 選択肢カードの問題WebView初期化
+            var baseHtml = CreateBaseHtmlTemplate();
             ChoiceQuestionWebView.Source = new HtmlWebViewSource
             {
-                Html = ConvertMarkdownToHtml(question)
+                Html = baseHtml
             };
+            
+            // 少し遅延してからコンテンツを更新
+            Device.StartTimer(TimeSpan.FromMilliseconds(300), () =>
+            {
+                MainThread.BeginInvokeOnMainThread(async () =>
+                {
+                    await UpdateWebViewContent(ChoiceQuestionWebView, question, false);
+                });
+                return false;
+            });
 
             ChoiceContainer.Children.Clear();
             checkBoxes.Clear();
@@ -431,11 +598,26 @@ namespace AnkiPlus_MAUI
                 ChoiceContainer.Children.Add(choiceLayout);
             }
 
-            // 解説を表示
+            // 解説が空でない場合のみWebViewを設定
+            if (!string.IsNullOrWhiteSpace(explanation))
+            {
+                // 解説WebViewも同様に初期化
+                var explanationBaseHtml = CreateBaseHtmlTemplate();
             ChoiceExplanationWebView.Source = new HtmlWebViewSource
             {
-                Html = ConvertMarkdownToHtml(explanation)
-            };
+                    Html = explanationBaseHtml
+                };
+                
+                // 少し遅延してからコンテンツを更新
+                Device.StartTimer(TimeSpan.FromMilliseconds(400), () =>
+                {
+                    MainThread.BeginInvokeOnMainThread(async () =>
+                    {
+                        await UpdateWebViewContent(ChoiceExplanationWebView, explanation, false);
+                    });
+                    return false;
+                });
+            }
             ChoiceExplanationFrame.IsVisible = false;
         }
 
@@ -636,19 +818,34 @@ namespace AnkiPlus_MAUI
             return (question, explanation, choices, isCorrectFlags);
         }
 
-        private void OnShowAnswerClicked(object sender, EventArgs e)
+        private async void OnShowAnswerClicked(object sender, EventArgs e)
         {
             if (BasicCardLayout.IsVisible)
             {
                 showAnswer = true;  // 解答表示フラグを有効に
-                // 解答を表示時に穴埋めを `({文字})` に変換
-                Debug.WriteLine(frontText);
-                var answerFrontHtml = ConvertMarkdownToHtml(frontText, showAnswer: true);
-                FrontPreviewWebView.Source = new HtmlWebViewSource
+                
+                // JavaScriptで穴埋め解答を表示（コンテンツ部分のみ更新）
+                try
                 {
-                    Html = answerFrontHtml
-                };
+                    await ShowBlankAnswersWithJavaScript(FrontPreviewWebView);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"解答表示エラー: {ex.Message}");
+                    // フォールバック：コンテンツ部分のみ更新
+                    await UpdateWebViewContent(FrontPreviewWebView, frontText, true);
+                }
+                
+                // 裏面が空でない場合のみ表示
+                var currentCard = sortedCards[currentIndex];
+                if (!string.IsNullOrWhiteSpace(currentCard.back))
+                {
                 BackPreviewFrame.IsVisible = true;
+                }
+                else
+                {
+                    BackPreviewFrame.IsVisible = false;
+                }
                 Correct.IsVisible = true;
                 Incorrect.IsVisible = true;
                 AnswerLine.IsVisible = true;
@@ -694,12 +891,34 @@ namespace AnkiPlus_MAUI
                 result.WasCorrect = isCorrect;
 
                 // 次回表示時間を設定
-                result.NextReviewTime = DateTime.Now.AddMinutes(isCorrect ? 10 : 1);  // 正解なら10分、不正解なら1分後に再表示
+                if (isCorrect)
+                {
+                    // 2回目以降の正解：1日後、初回正解：10分後
+                    result.NextReviewTime = result.WasCorrect ? DateTime.Now.AddDays(1) : DateTime.Now.AddMinutes(10);
+                }
+                else
+                {
+                    // 不正解：連続不正解なら1分後、前回正解なら10分後
+                    result.NextReviewTime = DateTime.Now.AddMinutes(result.WasCorrect ? 10 : 1);
+                }
 
-                SaveResultsToFile();
+                                // iOS版と同じ形式でresult.txtに保存
+                var currentCard = sortedCards[currentIndex];
+                SaveLearningRecord(currentCard, isCorrect);
 
-                // 解説を表示
-                ChoiceExplanationFrame.IsVisible = true;
+                // 学習記録同期フラグを更新
+                UpdateSyncFlag();
+
+                // 解説が空でない場合のみ表示
+                var currentCards = sortedCards[currentIndex];
+                if (!string.IsNullOrWhiteSpace(currentCards.explanation))
+                {
+                    ChoiceExplanationFrame.IsVisible = true;
+                }
+                else
+                {
+                    ChoiceExplanationFrame.IsVisible = false;
+                }
 
                 // 「次へ」ボタンを表示
                 ShowAnswerButton.IsVisible = false;
@@ -715,7 +934,7 @@ namespace AnkiPlus_MAUI
                 SeparatorGrid.IsVisible = true;
                 ShowAnswerButton.IsVisible = false;
 
-                // 画像穴埋め問題の結果を保存
+                // 画像穴埋め問題の結果を保存（正解・不正解ボタンで判定されるため、ここでは初期化のみ）
                 if (!results.ContainsKey(currentIndex + 1))
                 {
                     results[currentIndex + 1] = new CardResult();
@@ -745,6 +964,8 @@ namespace AnkiPlus_MAUI
         {
             try
             {
+                var currentCard = sortedCards[currentIndex];
+                
                 // 現在のカードのインデックスをそのまま利用
                 int questionNumber = currentIndex + 1;
                     if (!results.ContainsKey(questionNumber))
@@ -754,9 +975,24 @@ namespace AnkiPlus_MAUI
                     var result = results[questionNumber];
                     result.WasCorrect = true;  // 正解として記録
                     result.OriginalQuestionNumber = questionNumber;  // 元の問題番号を保持
+                
                     // 次回表示時間を設定
-                    result.NextReviewTime = DateTime.Now.AddMinutes(10);  // 10分後に再表示
-                    SaveResultsToFile();
+                if (result.WasCorrect)
+                {
+                    // 2回目以降の正解：1日後
+                    result.NextReviewTime = DateTime.Now.AddDays(1);
+                }
+                else
+                {
+                    // 初回正解：10分後
+                    result.NextReviewTime = DateTime.Now.AddMinutes(10);
+                }
+                
+                // iOS版と同じ形式でresult.txtに保存
+                SaveLearningRecord(currentCard, true);
+
+                // 学習記録同期フラグを更新
+                UpdateSyncFlag();
 
                 currentIndex++;
                 Correct.IsVisible = false;
@@ -778,6 +1014,8 @@ namespace AnkiPlus_MAUI
         {
             try
             {
+                var currentCard = sortedCards[currentIndex];
+                
                 int questionNumber = currentIndex + 1;
                     if (!results.ContainsKey(questionNumber))
                     {
@@ -786,9 +1024,24 @@ namespace AnkiPlus_MAUI
                     var result = results[questionNumber];
                     result.WasCorrect = false;  // 不正解として記録
                     result.OriginalQuestionNumber = questionNumber;  // 元の問題番号を保持
+                
                     // 次回表示時間を設定
-                    result.NextReviewTime = DateTime.Now.AddMinutes(1);  // 1分後に再表示
-                    SaveResultsToFile();
+                if (result.WasCorrect)
+                {
+                    // 前回が正解で今回不正解：10分後
+                    result.NextReviewTime = DateTime.Now.AddMinutes(10);
+                }
+                else
+                {
+                    // 連続不正解：1分後
+                    result.NextReviewTime = DateTime.Now.AddMinutes(1);
+                }
+                
+                // iOS版と同じ形式でresult.txtに保存
+                SaveLearningRecord(currentCard, false);
+
+                // 学習記録同期フラグを更新
+                UpdateSyncFlag();
 
                 currentIndex++;
                 Correct.IsVisible = false;
@@ -826,8 +1079,111 @@ namespace AnkiPlus_MAUI
             return $"data:{mimeType};base64,{base64String}";
         }
 
-        // Markdown を HTML に変換
-        private string ConvertMarkdownToHtml(string text, bool showAnswer = false)
+        // 枠組みのHTMLテンプレートを生成
+        private string CreateBaseHtmlTemplate()
+        {
+            var redColor = IsDarkMode ? "#FF6B6B" : "red";
+            
+            return $@"
+            <html>
+            <head>
+                <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+                <style>
+                    body {{ 
+                        font-size: 18px; 
+                        font-family: Arial, sans-serif; 
+                        line-height: 1.5; 
+                        white-space: pre-line;
+                        background-color: {ThemeColors.HtmlBackgroundColor};
+                        color: {ThemeColors.HtmlTextColor};
+                        margin: 10px;
+                        padding: 10px;
+                        min-height: 100vh;
+                    }}
+                    sup {{ vertical-align: super; font-size: smaller; }}
+                    sub {{ vertical-align: sub; font-size: smaller; }}
+                    img {{ 
+                        display: block; 
+                        margin: 10px 0; 
+                        border-radius: 8px;
+                        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+                    }}
+                    code {{
+                        background-color: {ThemeColors.HtmlCodeBackground};
+                        padding: 2px 4px;
+                        border-radius: 4px;
+                        font-family: 'Courier New', monospace;
+                    }}
+                    pre {{
+                        background-color: {ThemeColors.HtmlCodeBackground};
+                        padding: 10px;
+                        border-radius: 8px;
+                        overflow-x: auto;
+                    }}
+                    .blank-placeholder {{
+                        min-width: 20px;
+                        display: inline-block;
+                    }}
+                    #main-content {{
+                        opacity: 1;
+                        transition: opacity 0.3s ease;
+                    }}
+                    .loading {{
+                        opacity: 0.5;
+                    }}
+                </style>
+                <script>
+                    function updateContent(content) {{
+                        var mainContent = document.getElementById('main-content');
+                        if (mainContent) {{
+                            mainContent.innerHTML = content;
+                        }}
+                    }}
+                    
+                    function showAllAnswers() {{
+                        var blanks = document.querySelectorAll('.blank-placeholder');
+                        blanks.forEach(function(blank) {{
+                            var answer = blank.getAttribute('data-answer');
+                            if (answer) {{
+                                blank.textContent = answer;
+                                blank.style.color = '{redColor}';
+                            }}
+                        }});
+                    }}
+                    
+                    function showAnswer(blankId, answer) {{
+                        var element = document.getElementById(blankId);
+                        if (element) {{
+                            element.textContent = answer;
+                            element.style.color = '{redColor}';
+                        }}
+                    }}
+                    
+                    function insertText(elementId, text) {{
+                        var element = document.getElementById(elementId);
+                        if (element) {{
+                            element.innerHTML = text;
+                        }}
+                    }}
+                    
+                    function setLoading(isLoading) {{
+                        var mainContent = document.getElementById('main-content');
+                        if (isLoading) {{
+                            mainContent.classList.add('loading');
+                        }} else {{
+                            mainContent.classList.remove('loading');
+                        }}
+                    }}
+                </script>
+            </head>
+            <body>
+                <div id='main-content'>読み込み中...</div>
+            </body>
+            </html>";
+        }
+
+        // コンテンツ部分のみのHTMLを生成
+        private string ConvertToContentHtml(string text, bool showAnswer = false)
         {
             if (string.IsNullOrWhiteSpace(text)) return "";
 
@@ -857,21 +1213,49 @@ namespace AnkiPlus_MAUI
                 }
             }
 
-            // 穴埋め表示処理
+            // 穴埋め表示処理（JavaScript操作用のIDを付与）
+            int blankCounter = 0;
             if (showAnswer)
             {
                 Debug.WriteLine(frontText);
                 // 解答表示時は `<<blank|文字>>` → `(文字)`
-                text = Regex.Replace(text, @"<<blank\|(.*?)>>", "($1)");
+                text = Regex.Replace(text, @"<<blank\|(.*?)>>", match =>
+                {
+                    blankCounter++;
+                    var answer = match.Groups[1].Value;
+                    return $"(<span id='blank_{blankCounter}' style='color:{(IsDarkMode ? "#FF6B6B" : "red")};'>{answer}</span>)";
+                });
             }
             else
             {
-                // 問題表示時は `<<blank|文字>>` → `( )`
-                text = Regex.Replace(text, @"<<blank\|(.*?)>>", "( )");
+                // 問題表示時は `<<blank|文字>>` → `( )` （後でJavaScriptで操作可能）
+                text = Regex.Replace(text, @"<<blank\|(.*?)>>", match =>
+                {
+                    blankCounter++;
+                    var answer = match.Groups[1].Value;
+                    return $"(<span id='blank_{blankCounter}' data-answer='{HttpUtility.HtmlEncode(answer)}' class='blank-placeholder'> </span>)";
+                });
             }
+
+            // 穴埋めのspanタグを一時的に保護
+            var protectedSpans = new List<string>();
+            int spanIndex = 0;
+            text = Regex.Replace(text, @"<span[^>]*>.*?</span>", match =>
+            {
+                var placeholder = $"__SPAN_PLACEHOLDER_{spanIndex}__";
+                protectedSpans.Add(match.Value);
+                spanIndex++;
+                return placeholder;
+            });
 
             // HTML エスケープ
             text = HttpUtility.HtmlEncode(text);
+
+            // 保護されたspanタグを復元
+            for (int i = 0; i < protectedSpans.Count; i++)
+            {
+                text = text.Replace($"__SPAN_PLACEHOLDER_{i}__", protectedSpans[i]);
+            }
 
             // 太字変換
             text = Regex.Replace(text, @"\*\*(.*?)\*\*", "<b>$1</b>");
@@ -891,12 +1275,6 @@ namespace AnkiPlus_MAUI
             text = Regex.Replace(text, @"\{\{purple\|(.*?)\}\}", $"<span style='color:{purpleColor};'>$1</span>");
             text = Regex.Replace(text, @"\{\{orange\|(.*?)\}\}", $"<span style='color:{orangeColor};'>$1</span>");
 
-            // 穴埋めの解答を赤字に変換（エスケープ後）
-            if (showAnswer)
-            {
-                text = Regex.Replace(text, @"\((.*?)\)", $"(<span style='color:{redColor};'>$1</span>)");
-            }
-
             // 上付き・下付き変換
             text = Regex.Replace(text, @"\^\^(.*?)\^\^", "<sup>$1</sup>");
             text = Regex.Replace(text, @"~~(.*?)~~", "<sub>$1</sub>");
@@ -907,83 +1285,279 @@ namespace AnkiPlus_MAUI
             // 改行を `<br>` に変換
             text = text.Replace(Environment.NewLine, "<br>").Replace("\n", "<br>");
 
-            // ダークモード対応のHTMLテンプレート
-            string htmlTemplate = $@"
-            <html>
-            <head>
-                <meta name='viewport' content='width=device-width, initial-scale=1.0'>
-                <style>
-                    body {{ 
-                        font-size: 18px; 
-                        font-family: Arial, sans-serif; 
-                        line-height: 1.5; 
-                        white-space: pre-line;
-                        background-color: {ThemeColors.HtmlBackgroundColor};
-                        color: {ThemeColors.HtmlTextColor};
-                        margin: 10px;
-                        padding: 10px;
-                    }}
-                    sup {{ vertical-align: super; font-size: smaller; }}
-                    sub {{ vertical-align: sub; font-size: smaller; }}
-                    img {{ 
-                        display: block; 
-                        margin: 10px 0; 
-                        border-radius: 8px;
-                        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-                    }}
-                    code {{
-                        background-color: {ThemeColors.HtmlCodeBackground};
-                        padding: 2px 4px;
-                        border-radius: 4px;
-                        font-family: 'Courier New', monospace;
-                    }}
-                    pre {{
-                        background-color: {ThemeColors.HtmlCodeBackground};
-                        padding: 10px;
-                        border-radius: 8px;
-                        overflow-x: auto;
-                    }}
-                </style>
-            </head>
-            <body>{text}</body>
-            </html>";
-
-            return htmlTemplate;
+            return text;
         }
 
-        // 結果を即時保存
+        // 互換性のため残す（レガシー用）
+        private string ConvertMarkdownToHtml(string text, bool showAnswer = false)
+        {
+            var content = ConvertToContentHtml(text, showAnswer);
+            return CreateBaseHtmlTemplate().Replace("読み込み中...", content);
+        }
+
+        // WebViewで穴埋めの解答を表示するJavaScript実行
+        private async Task ShowBlankAnswersWithJavaScript(WebView webView)
+        {
+            try
+            {
+                await webView.EvaluateJavaScriptAsync("showAllAnswers();");
+                Debug.WriteLine("JavaScript: 穴埋め解答を表示");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"JavaScript実行エラー: {ex.Message}");
+                // JavaScriptが失敗した場合、従来通りHTML全体を再生成
+                Debug.WriteLine("JavaScript失敗 - HTML再生成でフォールバック");
+                await FallbackToHtmlRegeneration(webView);
+            }
+        }
+
+        // JavaScript失敗時のフォールバック：HTML全体再生成
+        private async Task FallbackToHtmlRegeneration(WebView webView)
+        {
+            try
+            {
+                await MainThread.InvokeOnMainThreadAsync(() =>
+                {
+                    if (webView == FrontPreviewWebView)
+                    {
+                        var answerFrontHtml = ConvertMarkdownToHtml(frontText, showAnswer: true);
+                        webView.Source = new HtmlWebViewSource
+                        {
+                            Html = answerFrontHtml
+                        };
+                        Debug.WriteLine("HTML再生成完了");
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"HTML再生成でもエラー: {ex.Message}");
+            }
+        }
+
+        // WebViewに特定のテキストを挿入
+        private async Task InsertTextToWebView(WebView webView, string elementId, string text)
+        {
+            try
+            {
+                var escapedText = text.Replace("'", "\\'").Replace("\"", "\\\"");
+                await webView.EvaluateJavaScriptAsync($"insertText('{elementId}', '{escapedText}');");
+                Debug.WriteLine($"JavaScript: {elementId}にテキスト挿入");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"JavaScript実行エラー: {ex.Message}");
+            }
+        }
+
+        // 特定の穴埋めだけを表示
+        private async Task ShowSpecificBlank(WebView webView, int blankNumber, string answer)
+        {
+            try
+            {
+                var escapedAnswer = answer.Replace("'", "\\'").Replace("\"", "\\\"");
+                await webView.EvaluateJavaScriptAsync($"showAnswer('blank_{blankNumber}', '{escapedAnswer}');");
+                Debug.WriteLine($"JavaScript: blank_{blankNumber}に解答表示");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"JavaScript実行エラー: {ex.Message}");
+            }
+        }
+
+        // WebViewのコンテンツに任意のJavaScriptを実行
+        private async Task ExecuteJavaScript(WebView webView, string javascript)
+        {
+            try
+            {
+                var result = await webView.EvaluateJavaScriptAsync(javascript);
+                Debug.WriteLine($"JavaScript実行結果: {result}");
+                return;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"JavaScript実行エラー: {ex.Message}");
+            }
+        }
+
+        // WebViewのコンテンツ部分のみを更新
+        private async Task UpdateWebViewContent(WebView webView, string text, bool showAnswer)
+        {
+            try
+            {
+                var contentHtml = ConvertToContentHtml(text, showAnswer);
+                var escapedContent = contentHtml.Replace("'", "\\'").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "");
+                
+                await webView.EvaluateJavaScriptAsync($"updateContent('{escapedContent}');");
+                Debug.WriteLine("WebViewコンテンツ更新完了");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"WebViewコンテンツ更新エラー: {ex.Message}");
+                // フォールバック：HTML全体を再読み込み
+                var fullHtml = ConvertMarkdownToHtml(text, showAnswer);
+                webView.Source = new HtmlWebViewSource { Html = fullHtml };
+            }
+        }
+
+        // 学習記録を保存（iOS版と同じ形式）
+        private void SaveLearningRecord(CardData card, bool isCorrect)
+        {
+            try
+            {
+                string resultFilePath = Path.Combine(tempExtractPath, "result.txt");
+
+                // 結果の文字列
+                string result = isCorrect ? "正解" : "不正解";
+
+                // result.txtから既存の記録があるかを確認
+                bool hasExistingRecord = CheckExistingRecord(card.id, resultFilePath);
+
+                // 前回の結果を取得（既存記録がある場合）
+                bool? previousResult = null;
+                if (hasExistingRecord)
+                {
+                    previousResult = GetPreviousResult(card.id, resultFilePath);
+                }
+
+                // 次回復習時間の計算（iOS版と同じロジック）
+                DateTime nextReviewDate;
+                if (isCorrect)
+                {
+                    // 正解の場合
+                    if (hasExistingRecord)
+                    {
+                        // 2回目以降の正解：1日後
+                        nextReviewDate = DateTime.Now.AddDays(1);
+                        Debug.WriteLine($"カード {card.id}: 2回目以降の正解 → 1日後に復習");
+                    }
+                    else
+                    {
+                        // 初回正解：10分後
+                        nextReviewDate = DateTime.Now.AddMinutes(10);
+                        Debug.WriteLine($"カード {card.id}: 初回正解 → 10分後に復習");
+                    }
+                }
+                else
+                {
+                    // 不正解の場合
+                    if (hasExistingRecord && previousResult == true)
+                    {
+                        // 前回が正解で今回不正解：10分後
+                        nextReviewDate = DateTime.Now.AddMinutes(10);
+                        Debug.WriteLine($"カード {card.id}: 前回正解→今回不正解 → 10分後に復習");
+                    }
+                    else
+                    {
+                        // 初回不正解または連続不正解：1分後
+                        nextReviewDate = DateTime.Now.AddMinutes(1);
+                        Debug.WriteLine($"カード {card.id}: 初回不正解または連続不正解 → 1分後に復習");
+                    }
+                }
+
+                // 日時を文字列に変換（iOS版と同じ形式）
+                string nextReviewDateStr = nextReviewDate.ToString("yyyy/MM/dd HH:mm:ss");
+
+                // iOS版と同じ形式：{UUID}|{正解/不正解}|{次回復習時間}
+                string recordLine = $"{card.id}|{result}|{nextReviewDateStr}";
+
+                // ファイルに追記
+                File.AppendAllText(resultFilePath, recordLine + Environment.NewLine);
+
+                // メモリ内の学習記録も更新
+                UpdateLearningRecord(card, isCorrect, nextReviewDate);
+
+                Debug.WriteLine($"学習記録を保存: {recordLine}");
+                Debug.WriteLine($"保存先: {resultFilePath}");
+                Debug.WriteLine($"tempExtractPath: {tempExtractPath}");
+                Debug.WriteLine($"cards.txtパス: {cardsFilePath}");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"学習記録の保存中にエラー: {ex.Message}");
+            }
+        }
+
+        // result.txtに既存の記録があるかチェック
+        private bool CheckExistingRecord(string cardId, string resultFilePath)
+        {
+            try
+            {
+                if (!File.Exists(resultFilePath))
+                {
+                    Debug.WriteLine($"result.txtが存在しないため、カード {cardId} は初回");
+                    return false;
+                }
+
+                var lines = File.ReadAllLines(resultFilePath);
+                foreach (string line in lines)
+                {
+                    if (string.IsNullOrWhiteSpace(line)) continue;
+                    
+                    var parts = line.Split('|');
+                    if (parts.Length >= 1 && parts[0].Trim().Equals(cardId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        Debug.WriteLine($"カード {cardId} の既存記録を発見");
+                        return true;
+                    }
+                }
+                
+                Debug.WriteLine($"カード {cardId} の既存記録なし（初回）");
+                return false;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"既存記録チェック中にエラー: {ex.Message}");
+                return false;
+            }
+        }
+
+        // 前回の結果を取得
+        private bool? GetPreviousResult(string cardId, string resultFilePath)
+        {
+            try
+            {
+                if (!File.Exists(resultFilePath)) return null;
+
+                var lines = File.ReadAllLines(resultFilePath);
+                // 最後の記録を取得（最新の結果）
+                for (int i = lines.Length - 1; i >= 0; i--)
+                {
+                    string line = lines[i];
+                    if (string.IsNullOrWhiteSpace(line)) continue;
+                    
+                    var parts = line.Split('|');
+                    if (parts.Length >= 2 && parts[0].Trim().Equals(cardId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        bool wasCorrect = parts[1].Trim() == "正解";
+                        Debug.WriteLine($"カード {cardId} の前回結果: {(wasCorrect ? "正解" : "不正解")}");
+                        return wasCorrect;
+                    }
+                }
+                
+                return null;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"前回結果取得中にエラー: {ex.Message}");
+                return null;
+            }
+        }
+
+        // 結果を即時保存（互換性のため残す）
         private void SaveResultsToFile()
         {
             try
             {
-                string resultsFilePath = Path.Combine(tempExtractPath, "results.txt");
-
-                var resultLines = new List<string>();
-
-                foreach (var entry in results)
+                if (currentIndex < sortedCards.Count)
                 {
-                    int questionNumber = entry.Key;  // 元の問題番号
-                    var result = entry.Value;
-
-                    // 基本情報（直前の正誤のみ）
-                    var basicInfo = $"正誤: {(result.WasCorrect ? "正解" : "不正解")}";
-
-                    // 次回表示時間
-                    var nextReviewString = result.NextReviewTime?.ToString("yyyy-MM-dd HH:mm:ss") ?? "";
-
-                    resultLines.Add($"{questionNumber} | {basicInfo} | {nextReviewString}");
+                    var currentCard = sortedCards[currentIndex];
+                    if (results.ContainsKey(currentIndex + 1))
+                    {
+                        SaveLearningRecord(currentCard, results[currentIndex + 1].WasCorrect);
+                    }
                 }
-
-                // 問題番号でソート
-                resultLines.Sort((a, b) =>
-                {
-                    int numA = int.Parse(a.Split('|')[0].Trim());
-                    int numB = int.Parse(b.Split('|')[0].Trim());
-                    return numA.CompareTo(numB);
-                });
-
-                File.WriteAllLines(resultsFilePath, resultLines);
-                Debug.WriteLine($"結果を保存しました: {resultsFilePath}");
             }
             catch (Exception ex)
             {
@@ -991,6 +1565,280 @@ namespace AnkiPlus_MAUI
             }
         }
 
+        // iOS版と同じ学習記録の読み込みとカードソート
+        private void LoadAndSortCards()
+        {
+            Debug.WriteLine($"LoadAndSortCards開始 - cards.Count: {cards.Count}");
+            LoadLearningRecords();
+            
+            // 現在時刻
+            var now = DateTime.Now;
+            
+            // カードを優先順位でソート
+            sortedCards = cards.OrderBy(card =>
+            {
+                var record = learningRecords.ContainsKey(card.id) ? learningRecords[card.id] : null;
+                
+                // 1. 未学習のカードを最優先 (0)
+                if (record == null || record.LastResult == null)
+                {
+                    Debug.WriteLine($"★未学習★カード優先: {card.id}");
+                    return 0;
+                }
+                
+                // 2. 復習時間が来ているカードを次に優先 (1)
+                if (record.NextReviewDate <= now)
+                {
+                    Debug.WriteLine($"★復習時間★カード優先: {card.id}");
+                    return 1;
+                }
+                
+                // 3. 前回の回答が不正解のカードを優先 (2)
+                if (record.LastResult == false)
+                {
+                    Debug.WriteLine($"★前回不正解★カード優先: {card.id}");
+                    return 2;
+                }
+                
+                // 4. その他は復習時間順 (3以降)
+                return 3;
+            })
+            .ThenBy(card =>
+            {
+                var record = learningRecords.ContainsKey(card.id) ? learningRecords[card.id] : null;
+                return record?.NextReviewDate ?? DateTime.MaxValue;
+            })
+            .ToList();
+            
+            // カードが空でないことを確認
+            if (!sortedCards.Any())
+            {
+                sortedCards = cards.ToList();
+            }
+            
+            Debug.WriteLine($"ソート後のカード順序: {sortedCards.Count}件");
+            for (int i = 0; i < Math.Min(5, sortedCards.Count); i++)
+            {
+                var card = sortedCards[i];
+                var record = learningRecords.ContainsKey(card.id) ? learningRecords[card.id] : null;
+                var status = record?.LastResult == null ? "★未学習★" : 
+                           record.NextReviewDate <= now ? "★復習時間★" :
+                           record.LastResult == false ? "★前回不正解★" : "学習済み";
+                Debug.WriteLine($"{i + 1}. {status} カードID: {card.id}");
+            }
+        }
+
+        // 学習記録を読み込む
+        private void LoadLearningRecords()
+        {
+            Debug.WriteLine("学習記録の読み込み開始");
+            learningRecords.Clear();
+            
+            try
+            {
+                string resultFilePath = Path.Combine(tempExtractPath, "result.txt");
+                
+                if (!File.Exists(resultFilePath))
+                {
+                    Debug.WriteLine("result.txtが存在しません");
+                    return;
+                }
+                
+                var lines = File.ReadAllLines(resultFilePath);
+                
+                foreach (var line in lines)
+                {
+                    if (string.IsNullOrWhiteSpace(line)) continue;
+                    
+                    var parts = line.Split('|');
+                    if (parts.Length >= 3)
+                    {
+                        var cardId = parts[0].Trim();
+                        var isCorrect = parts[1].Trim() == "正解";
+                        
+                        if (DateTime.TryParse(parts[2].Trim(), out DateTime nextReviewDate))
+                        {
+                            // 既存の記録を取得または新規作成
+                            if (!learningRecords.ContainsKey(cardId))
+                            {
+                                learningRecords[cardId] = new LearningRecord(cardId);
+                            }
+                            
+                            var record = learningRecords[cardId];
+                            
+                            // 記録を更新
+                            if (isCorrect)
+                            {
+                                record.CorrectCount++;
+                            }
+                            else
+                            {
+                                record.IncorrectCount++;
+                            }
+                            
+                            record.LastResult = isCorrect;
+                            record.NextReviewDate = nextReviewDate;
+                        }
+                    }
+                }
+                
+                Debug.WriteLine($"読み込んだ学習記録数: {learningRecords.Count}");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"学習記録読み込み中にエラー: {ex.Message}");
+            }
+        }
+
+        // 復習タイマーを開始
+        private void StartReviewTimer()
+        {
+            StopReviewTimer();
+            
+            Debug.WriteLine("復習タイマーを開始");
+            reviewTimer = new System.Timers.Timer(30000); // 30秒間隔
+            reviewTimer.Elapsed += (sender, e) => CheckForReviewCards();
+            reviewTimer.AutoReset = true;
+            reviewTimer.Enabled = true;
+        }
+
+        // 復習タイマーを停止
+        private void StopReviewTimer()
+        {
+            if (reviewTimer != null)
+            {
+                reviewTimer.Stop();
+                reviewTimer.Dispose();
+                reviewTimer = null;
+                Debug.WriteLine("復習タイマーを停止");
+            }
+        }
+
+        // 復習が必要なカードをチェック
+        private void CheckForReviewCards()
+        {
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                try
+                {
+                    var now = DateTime.Now;
+                    
+                    var needsReview = cards.Where(card =>
+                    {
+                        if (!learningRecords.ContainsKey(card.id)) return false;
+                        
+                        var record = learningRecords[card.id];
+                        var isReviewTime = record.NextReviewDate <= now;
+                        var isLastIncorrect = record.LastResult == false;
+                        var isNotCurrentCard = currentIndex >= sortedCards.Count || card.id != sortedCards[currentIndex].id;
+                        var isNotAlreadyInQueue = !sortedCards.Skip(currentIndex + 1).Any(c => c.id == card.id);
+                        
+                        return (isReviewTime || isLastIncorrect) && isNotCurrentCard && isNotAlreadyInQueue;
+                    }).ToList();
+                    
+                    if (needsReview.Any())
+                    {
+                        Debug.WriteLine($"復習対象カード: {needsReview.Count}件");
+                        foreach (var card in needsReview)
+                        {
+                            var record = learningRecords[card.id];
+                            var reason = record.NextReviewDate <= now ? "復習時間到達" : "前回不正解";
+                            Debug.WriteLine($"- カード{card.id}: {reason}");
+                        }
+                        PrioritizeReviewCards(needsReview);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"復習チェック中にエラー: {ex.Message}");
+                }
+            });
+        }
+
+        // 復習カードを優先配置
+        private void PrioritizeReviewCards(List<CardData> reviewCards)
+        {
+            var now = DateTime.Now;
+            
+            var sortedReviewCards = reviewCards.OrderBy(card =>
+            {
+                var record = learningRecords[card.id];
+                
+                // 復習時間が来ているカードを優先
+                var isReviewTime = record.NextReviewDate <= now;
+                var isLastIncorrect = record.LastResult == false;
+                
+                if (isReviewTime && !isLastIncorrect) return 0;
+                if (isReviewTime && isLastIncorrect) return 1;
+                if (!isReviewTime && isLastIncorrect) return 2;
+                return 3;
+            })
+            .ThenBy(card => learningRecords[card.id].NextReviewDate)
+            .ToList();
+            
+            var remainingCards = sortedCards.Skip(currentIndex + 1).ToList();
+            var newSortedCards = sortedCards.Take(currentIndex + 1).ToList();
+            newSortedCards.AddRange(sortedReviewCards);
+            newSortedCards.AddRange(remainingCards.Where(c => !sortedReviewCards.Any(r => r.id == c.id)));
+            
+            sortedCards = newSortedCards;
+            
+            Debug.WriteLine("復習カードを次に配置完了");
+            Debug.WriteLine($"新しい総カード数: {sortedCards.Count}");
+        }
+
+        // 復習が必要なカードを表示
+        private void ShowReviewNeededCards()
+        {
+            var now = DateTime.Now;
+            var reviewNeededCards = cards.Where(card =>
+            {
+                if (!learningRecords.ContainsKey(card.id)) return false;
+                var record = learningRecords[card.id];
+                return record.NextReviewDate <= now;
+            }).ToList();
+            
+            if (reviewNeededCards.Any())
+            {
+                sortedCards = reviewNeededCards.OrderBy(card => learningRecords[card.id].NextReviewDate).ToList();
+                currentIndex = 0;
+                showAnswer = false;
+                
+                Debug.WriteLine($"復習カードで継続: {sortedCards.Count}件");
+                DisplayCard();
+            }
+            else
+            {
+                Debug.WriteLine("すべての問題が完了しました");
+                DisplayAlert("完了", "すべての問題が出題されました。", "OK");
+                Navigation.PopAsync();
+            }
+        }
+
+        // メモリ内の学習記録を更新
+        private void UpdateLearningRecord(CardData card, bool isCorrect, DateTime nextReviewDate)
+        {
+            if (!learningRecords.ContainsKey(card.id))
+            {
+                learningRecords[card.id] = new LearningRecord(card.id);
+            }
+            
+            var record = learningRecords[card.id];
+            
+            if (isCorrect)
+            {
+                record.CorrectCount++;
+            }
+            else
+            {
+                record.IncorrectCount++;
+            }
+            
+            record.LastResult = isCorrect;
+            record.NextReviewDate = nextReviewDate;
+            
+            Debug.WriteLine($"学習記録を更新: カード{card.id} - {(isCorrect ? "正解" : "不正解")} - 次回: {nextReviewDate}");
+        }
     }
 }
 

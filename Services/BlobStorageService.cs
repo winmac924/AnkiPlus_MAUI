@@ -931,5 +931,197 @@ namespace AnkiPlus_MAUI.Services
                 return false;
             }
         }
+
+        /// <summary>
+        /// 学習記録（result.txt）をアップロードする
+        /// </summary>
+        public async Task UploadLearningResultAsync(string uid, string noteName, string resultContent, string subFolder = null)
+        {
+            await EnsureInitializedAsync();
+            try
+            {
+                Debug.WriteLine($"学習記録のアップロード開始 - UID: {uid}, ノート名: {noteName}, サブフォルダ: {subFolder ?? "なし"}");
+                
+                var containerClient = _blobServiceClient.GetBlobContainerClient(CONTAINER_NAME);
+                var userPath = GetUserPath(uid, subFolder);
+                var fullPath = $"{userPath}/{noteName}/result.txt";
+                var blobClient = containerClient.GetBlobClient(fullPath);
+
+                using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(resultContent));
+                await blobClient.UploadAsync(stream, overwrite: true);
+                Debug.WriteLine($"学習記録のアップロード完了 - パス: {fullPath}, サイズ: {resultContent.Length} バイト");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"学習記録のアップロード中にエラー: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// 学習記録（result.txt）をダウンロードする
+        /// </summary>
+        public async Task<string> DownloadLearningResultAsync(string uid, string noteName, string subFolder = null)
+        {
+            await EnsureInitializedAsync();
+            try
+            {
+                Debug.WriteLine($"学習記録のダウンロード開始 - UID: {uid}, ノート名: {noteName}, サブフォルダ: {subFolder ?? "なし"}");
+                
+                var containerClient = _blobServiceClient.GetBlobContainerClient(CONTAINER_NAME);
+                var userPath = GetUserPath(uid, subFolder);
+                var fullPath = $"{userPath}/{noteName}/result.txt";
+                var blobClient = containerClient.GetBlobClient(fullPath);
+
+                if (await blobClient.ExistsAsync())
+                {
+                    var response = await blobClient.DownloadAsync();
+                    using var streamReader = new StreamReader(response.Value.Content);
+                    var content = await streamReader.ReadToEndAsync();
+                    Debug.WriteLine($"学習記録のダウンロード完了 - サイズ: {content.Length} バイト");
+                    return content;
+                }
+
+                Debug.WriteLine($"学習記録ファイルが見つかりません: {fullPath}");
+                return null;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"学習記録のダウンロード中にエラー: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 学習記録（result.txt）が存在するかチェックする
+        /// </summary>
+        public async Task<bool> LearningResultExistsAsync(string uid, string noteName, string subFolder = null)
+        {
+            await EnsureInitializedAsync();
+            try
+            {
+                var containerClient = _blobServiceClient.GetBlobContainerClient(CONTAINER_NAME);
+                var userPath = GetUserPath(uid, subFolder);
+                var fullPath = $"{userPath}/{noteName}/result.txt";
+                var blobClient = containerClient.GetBlobClient(fullPath);
+                return await blobClient.ExistsAsync();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"学習記録ファイルの存在確認中にエラー: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 学習記録の最終更新時刻を取得する
+        /// </summary>
+        public async Task<DateTime?> GetLearningResultLastModifiedAsync(string uid, string noteName, string subFolder = null)
+        {
+            await EnsureInitializedAsync();
+            try
+            {
+                var containerClient = _blobServiceClient.GetBlobContainerClient(CONTAINER_NAME);
+                var userPath = GetUserPath(uid, subFolder);
+                var fullPath = $"{userPath}/{noteName}/result.txt";
+                var blobClient = containerClient.GetBlobClient(fullPath);
+
+                if (await blobClient.ExistsAsync())
+                {
+                    var properties = await blobClient.GetPropertiesAsync();
+                    return properties.Value.LastModified.DateTime;
+                }
+
+                return null;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"学習記録の最終更新時刻取得中にエラー: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 指定されたパスの画像ファイル一覧を取得する
+        /// </summary>
+        public async Task<List<string>> GetImageFilesAsync(string uid, string folderPath)
+        {
+            await EnsureInitializedAsync();
+            try
+            {
+                Debug.WriteLine($"画像ファイル一覧の取得開始 - UID: {uid}, フォルダパス: {folderPath}");
+                
+                var containerClient = _blobServiceClient.GetBlobContainerClient(CONTAINER_NAME);
+                var prefix = $"{uid}/{folderPath}/";
+                var imageFiles = new List<string>();
+
+                Debug.WriteLine($"検索プレフィックス: {prefix}");
+                
+                await foreach (var blob in containerClient.GetBlobsAsync(prefix: prefix))
+                {
+                    Debug.WriteLine($"見つかったファイル: {blob.Name}");
+                    
+                    // プレフィックス以降のファイル名のみを抽出
+                    var relativePath = blob.Name.Substring(prefix.Length);
+                    if (!string.IsNullOrEmpty(relativePath) && !relativePath.Contains("/"))
+                    {
+                        // iOS版の形式（img_########_######.jpg）をチェック
+                        if (System.Text.RegularExpressions.Regex.IsMatch(relativePath, @"^img_\d{8}_\d{6}\.jpg$"))
+                        {
+                            imageFiles.Add(relativePath);
+                            Debug.WriteLine($"追加された画像ファイル: {relativePath}");
+                        }
+                        else
+                        {
+                            Debug.WriteLine($"画像ファイル形式ではないためスキップ: {relativePath}");
+                        }
+                    }
+                }
+
+                Debug.WriteLine($"画像ファイル一覧取得完了 - 件数: {imageFiles.Count}");
+                return imageFiles;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"画像ファイル一覧取得中にエラー: {ex.Message}");
+                return new List<string>();
+            }
+        }
+
+        /// <summary>
+        /// 画像ファイルの内容をバイナリデータとして取得する
+        /// </summary>
+        public async Task<byte[]> GetImageBinaryAsync(string uid, string imageName, string folderPath)
+        {
+            await EnsureInitializedAsync();
+            try
+            {
+                Debug.WriteLine($"画像ファイルの取得開始 - UID: {uid}, 画像名: {imageName}, フォルダパス: {folderPath}");
+                
+                var containerClient = _blobServiceClient.GetBlobContainerClient(CONTAINER_NAME);
+                var fullPath = $"{uid}/{folderPath}/{imageName}";
+                
+                Debug.WriteLine($"画像ファイルの完全パス: {fullPath}");
+                var blobClient = containerClient.GetBlobClient(fullPath);
+
+                if (await blobClient.ExistsAsync())
+                {
+                    var response = await blobClient.DownloadAsync();
+                    using var memoryStream = new MemoryStream();
+                    await response.Value.Content.CopyToAsync(memoryStream);
+                    var imageBytes = memoryStream.ToArray();
+                    Debug.WriteLine($"画像ファイルの取得完了 - サイズ: {imageBytes.Length} バイト");
+                    return imageBytes;
+                }
+
+                Debug.WriteLine($"画像ファイルが見つかりません: {fullPath}");
+                return null;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"画像ファイルの取得中にエラー: {ex.Message}");
+                throw;
+            }
+        }
     }
 } 

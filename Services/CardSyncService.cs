@@ -229,7 +229,7 @@ namespace AnkiPlus_MAUI.Services
                         imgPath = $"{noteName}/img";
                     }
                     
-                    var imgFiles = await _blobStorageService.GetNoteListAsync(uid, imgPath);
+                    var imgFiles = await _blobStorageService.GetImageFilesAsync(uid, imgPath);
                     Debug.WriteLine($"サーバーの画像ファイル数: {imgFiles.Count}");
                     Debug.WriteLine($"サーバーの画像ファイル一覧:");
                     foreach (var imgFile in imgFiles)
@@ -243,14 +243,13 @@ namespace AnkiPlus_MAUI.Services
                         if (Regex.IsMatch(imgFile, @"^img_\d{8}_\d{6}\.jpg$"))
                         {
                             Debug.WriteLine($"画像ファイルの処理開始: {imgFile}");
-                            var imgFileContent = await _blobStorageService.GetNoteContentAsync(uid, imgFile, imgPath);
-                            if (imgFileContent != null)
+                            var imgBytes = await _blobStorageService.GetImageBinaryAsync(uid, imgFile, imgPath);
+                            if (imgBytes != null)
                             {
                                 try
                                 {
                                     var tempImgPath = Path.Combine(tempImgDir, imgFile);
                                     Debug.WriteLine($"画像ファイルの保存先: {tempImgPath}");
-                                    var imgBytes = Convert.FromBase64String(imgFileContent);
                                     Debug.WriteLine($"画像ファイルのサイズ: {imgBytes.Length} バイト");
                                     await File.WriteAllBytesAsync(tempImgPath, imgBytes);
                                     Debug.WriteLine($"画像ファイルを一時フォルダにダウンロード: {tempImgPath}");
@@ -490,7 +489,7 @@ namespace AnkiPlus_MAUI.Services
                     }
 
                     // サーバーの画像ファイルを取得
-                    var serverImgFiles = await _blobStorageService.GetNoteListAsync(uid, $"{subFolder}/{noteName}/img");
+                    var serverImgFiles = await _blobStorageService.GetImageFilesAsync(uid, $"{subFolder}/{noteName}/img");
                     Debug.WriteLine($"サーバーの画像ファイル数: {serverImgFiles.Count}");
                     Debug.WriteLine($"サーバーの画像ファイル一覧:");
                     foreach (var imgFile in serverImgFiles)
@@ -504,14 +503,13 @@ namespace AnkiPlus_MAUI.Services
                         if (Regex.IsMatch(imgFile, @"^img_\d{8}_\d{6}\.jpg$"))
                         {
                             Debug.WriteLine($"画像ファイルの処理開始: {imgFile}");
-                            var imgFileContent = await _blobStorageService.GetNoteContentAsync(uid, imgFile, $"{subFolder}/{noteName}/img");
-                            if (imgFileContent != null)
+                            var imgBytes = await _blobStorageService.GetImageBinaryAsync(uid, imgFile, $"{subFolder}/{noteName}/img");
+                            if (imgBytes != null)
                             {
                                 try
                                 {
                                     var tempImgPath = Path.Combine(tempImgDir, imgFile);
                                     Debug.WriteLine($"画像ファイルの保存先: {tempImgPath}");
-                                    var imgBytes = Convert.FromBase64String(imgFileContent);
                                     Debug.WriteLine($"画像ファイルのサイズ: {imgBytes.Length} バイト");
                                     await File.WriteAllBytesAsync(tempImgPath, imgBytes);
                                     Debug.WriteLine($"画像ファイルを一時フォルダにダウンロード: {tempImgPath}");
@@ -616,31 +614,30 @@ namespace AnkiPlus_MAUI.Services
                         imgSyncPath = $"{noteName}/img";
                     }
                     
-                    var imgFiles = await _blobStorageService.GetNoteListAsync(uid, imgSyncPath);
-                    foreach (var imgFile in imgFiles)
-                    {
-                        if (Regex.IsMatch(imgFile, @"^img_\d{8}_\d{6}\.jpg$"))
+                    var imgFiles = await _blobStorageService.GetImageFilesAsync(uid, imgSyncPath);
+                                            foreach (var imgFile in imgFiles)
                         {
-                            var imgPath = Path.Combine(imgDir, imgFile);
-                            if (!File.Exists(imgPath))
+                            if (Regex.IsMatch(imgFile, @"^img_\d{8}_\d{6}\.jpg$"))
                             {
-                                var imgContent = await _blobStorageService.GetNoteContentAsync(uid, imgFile, imgSyncPath);
-                                if (imgContent != null)
+                                var imgPath = Path.Combine(imgDir, imgFile);
+                                if (!File.Exists(imgPath))
                                 {
-                                    try
+                                    var imgBytes = await _blobStorageService.GetImageBinaryAsync(uid, imgFile, imgSyncPath);
+                                    if (imgBytes != null)
                                     {
-                                        var imgBytes = Convert.FromBase64String(imgContent);
-                                        await File.WriteAllBytesAsync(imgPath, imgBytes);
-                                        Debug.WriteLine($"画像ファイルをダウンロード: {imgFile}");
-                                    }
-                                    catch (Exception ex)
-                                    {
-                                        Debug.WriteLine($"画像ファイル同期中にエラー: {imgFile}, エラー: {ex.Message}");
+                                        try
+                                        {
+                                            await File.WriteAllBytesAsync(imgPath, imgBytes);
+                                            Debug.WriteLine($"画像ファイルをダウンロード: {imgFile}");
+                                        }
+                                        catch (Exception ex)
+                                        {
+                                            Debug.WriteLine($"画像ファイル同期中にエラー: {imgFile}, エラー: {ex.Message}");
+                                        }
                                     }
                                 }
                             }
                         }
-                    }
 
                     // .ankplsファイルを更新
                     var localBasePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "AnkiPlus");
