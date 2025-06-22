@@ -31,7 +31,7 @@
 		<ApplicationVersion>140</ApplicationVersion>
 		<VersionPrefix>1.4.0</VersionPrefix>
 		<VersionSuffix Condition="'$(Configuration)' == 'Debug'">dev</VersionSuffix>
-		<AssemblyVersion>1.4.0.0</AssemblyVersion>
+		<AssemblyVersion>1.404.0</AssemblyVersion>
 		<FileVersion>1.4.0.0</FileVersion>
 
 		<!-- Windows配布設定 - EXE形式 -->
@@ -126,6 +126,7 @@
 	</ItemGroup>
 
 </Project>
+
 
 
 
