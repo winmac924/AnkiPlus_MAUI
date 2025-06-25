@@ -1,9 +1,8 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
-using Flashnote.Models;
 
-namespace Flashnote.ViewModels
+namespace AnkiPlus_MAUI.ViewModels
 {
     public class MainPageViewModel : INotifyPropertyChanged
     {

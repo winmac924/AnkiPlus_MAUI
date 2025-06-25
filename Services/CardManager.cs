@@ -11,15 +11,13 @@ using System.Web;
 using SkiaSharp.Views.Maui.Controls;
 using Microsoft.Maui.ApplicationModel;
 using System.Text.Json;
-using Flashnote.Models;
+using AnkiPlus_MAUI.Models;
 using System.Reflection;
 using System.Collections.Generic;
 using System.Linq;
 using Windows.System;
-using Microsoft.Extensions.Logging;
-using SQLite;
 
-namespace Flashnote.Services
+namespace AnkiPlus_MAUI.Services
 {
     /// <summary>
     /// カード作成・編集の共通機能を提供するサービス
@@ -36,8 +34,8 @@ namespace Flashnote.Services
         // UI要素
         private Picker _cardTypePicker;
         private Editor _frontTextEditor, _backTextEditor;
-        private RichTextLabel _frontPreviewLabel, _backPreviewLabel;
-        private RichTextLabel _choiceQuestionPreviewLabel, _choiceExplanationPreviewLabel;
+        private WebView _frontPreviewWebView, _backPreviewWebView;
+        private WebView _choiceQuestionPreviewWebView, _choiceExplanationPreviewWebView;
         private VerticalStackLayout _basicCardLayout;
         private StackLayout _multipleChoiceLayout, _imageFillLayout;
         private Editor _choiceQuestion, _choiceQuestionExplanation;
@@ -49,6 +47,12 @@ namespace Flashnote.Services
         private System.Timers.Timer _backPreviewTimer;
         private System.Timers.Timer _choiceQuestionPreviewTimer;
         private System.Timers.Timer _choiceExplanationPreviewTimer;
+        
+        // フラッシュ防止用
+        private bool _frontPreviewReady = false;
+        private bool _backPreviewReady = false;
+        private bool _choiceQuestionPreviewReady = false;
+        private bool _choiceExplanationPreviewReady = false;
         
         // 選択肢カード用
         private bool _removeNumbers = false;
@@ -96,7 +100,7 @@ namespace Flashnote.Services
             // サブフォルダ情報がある場合は、.ankplsファイルのパスを正しく構築
             if (!string.IsNullOrEmpty(subFolder))
             {
-                var localBasePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Flashnote");
+                var localBasePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "AnkiPlus");
                 var noteName = Path.GetFileNameWithoutExtension(cardsPath);
                 _ankplsFilePath = Path.Combine(localBasePath, subFolder, $"{noteName}.ankpls");
             }
@@ -460,10 +464,13 @@ namespace Flashnote.Services
             _frontTextEditor.Focused += (s, e) => _lastFocusedEditor = _frontTextEditor;
             
             var frontPreviewLabel = new Label { Text = "プレビュー", FontSize = 16 };
-            _frontPreviewLabel = new RichTextLabel
+            _frontPreviewWebView = new WebView 
             { 
-                ImageFolderPath = _tempExtractPath
+                HeightRequest = 80,
+                Opacity = 0
             };
+            SetWebViewBackgroundColor(_frontPreviewWebView);
+            _frontPreviewWebView.Navigated += OnFrontPreviewNavigated;
             
             // 裏面
             var backHeaderLayout = new HorizontalStackLayout();
@@ -492,19 +499,22 @@ namespace Flashnote.Services
             _backTextEditor.Focused += (s, e) => _lastFocusedEditor = _backTextEditor;
             
             var backPreviewLabel = new Label { Text = "プレビュー", FontSize = 16 };
-            _backPreviewLabel = new RichTextLabel
+            _backPreviewWebView = new WebView 
             { 
-                ImageFolderPath = _tempExtractPath
+                HeightRequest = 80,
+                Opacity = 0
             };
+            SetWebViewBackgroundColor(_backPreviewWebView);
+            _backPreviewWebView.Navigated += OnBackPreviewNavigated;
             
             _basicCardLayout.Children.Add(frontHeaderLayout);
             _basicCardLayout.Children.Add(_frontTextEditor);
             _basicCardLayout.Children.Add(frontPreviewLabel);
-            _basicCardLayout.Children.Add(_frontPreviewLabel);
+            _basicCardLayout.Children.Add(_frontPreviewWebView);
             _basicCardLayout.Children.Add(backHeaderLayout);
             _basicCardLayout.Children.Add(_backTextEditor);
             _basicCardLayout.Children.Add(backPreviewLabel);
-            _basicCardLayout.Children.Add(_backPreviewLabel);
+            _basicCardLayout.Children.Add(_backPreviewWebView);
         }
 
         /// <summary>
@@ -595,11 +605,13 @@ namespace Flashnote.Services
             _choiceQuestion.Focused += (s, e) => _lastFocusedEditor = _choiceQuestion;
             
             var choiceQuestionPreviewLabel = new Label { Text = "プレビュー", FontSize = 16 };
-            _choiceQuestionPreviewLabel = new RichTextLabel
+            _choiceQuestionPreviewWebView = new WebView 
             { 
                 HeightRequest = 80,
-                ImageFolderPath = _tempExtractPath
+                Opacity = 0
             };
+            SetWebViewBackgroundColor(_choiceQuestionPreviewWebView);
+            _choiceQuestionPreviewWebView.Navigated += OnChoiceQuestionPreviewNavigated;
             
             // 選択肢
             var choicesLabel = new Label { Text = "選択肢", FontSize = 16 };
@@ -645,23 +657,25 @@ namespace Flashnote.Services
             _choiceQuestionExplanation.Focused += (s, e) => _lastFocusedEditor = _choiceQuestionExplanation;
             
             var choiceExplanationPreviewLabel = new Label { Text = "プレビュー", FontSize = 16 };
-            _choiceExplanationPreviewLabel = new RichTextLabel
+            _choiceExplanationPreviewWebView = new WebView 
             { 
                 HeightRequest = 80,
-                ImageFolderPath = _tempExtractPath
+                Opacity = 0
             };
+            SetWebViewBackgroundColor(_choiceExplanationPreviewWebView);
+            _choiceExplanationPreviewWebView.Navigated += OnChoiceExplanationPreviewNavigated;
             
             _multipleChoiceLayout.Children.Add(choiceQuestionHeaderLayout);
             _multipleChoiceLayout.Children.Add(_choiceQuestion);
             _multipleChoiceLayout.Children.Add(choiceQuestionPreviewLabel);
-            _multipleChoiceLayout.Children.Add(_choiceQuestionPreviewLabel);
+            _multipleChoiceLayout.Children.Add(_choiceQuestionPreviewWebView);
             _multipleChoiceLayout.Children.Add(choicesLabel);
             _multipleChoiceLayout.Children.Add(choicesControlLayout);
             _multipleChoiceLayout.Children.Add(_choicesContainer);
             _multipleChoiceLayout.Children.Add(choiceExplanationHeaderLayout);
             _multipleChoiceLayout.Children.Add(_choiceQuestionExplanation);
             _multipleChoiceLayout.Children.Add(choiceExplanationPreviewLabel);
-            _multipleChoiceLayout.Children.Add(_choiceExplanationPreviewLabel);
+            _multipleChoiceLayout.Children.Add(_choiceExplanationPreviewWebView);
         }
 
         /// <summary>
@@ -1030,23 +1044,46 @@ namespace Flashnote.Services
         /// </summary>
         private void UpdateFrontPreviewWithDebounce()
         {
-            if (_frontTextEditor == null || _frontPreviewLabel == null) return;
+            if (_frontTextEditor == null || _frontPreviewWebView == null) return;
             
             // 既存のタイマーを停止
             _frontPreviewTimer?.Stop();
             _frontPreviewTimer?.Dispose();
             
-            // 新しいタイマーを作成（300ms後に実行）
-            _frontPreviewTimer = new System.Timers.Timer(300);
+            // 新しいタイマーを作成（500ms後に実行）
+            _frontPreviewTimer = new System.Timers.Timer(500);
             _frontPreviewTimer.Elapsed += (s, e) =>
             {
-                MainThread.BeginInvokeOnMainThread(() =>
+                Device.BeginInvokeOnMainThread(async () =>
                 {
                     try
                     {
                         var markdown = _frontTextEditor.Text ?? "";
-                        _frontPreviewLabel.RichText = markdown;
-                        _frontPreviewLabel.ShowAnswer = false;
+                        
+                        // JavaScript手法を使用：初回のみベースHTMLを設定
+                        if (!_frontPreviewReady)
+                        {
+                            var baseHtml = CreateBaseHtmlTemplate();
+                            SetWebViewBackgroundColor(_frontPreviewWebView);
+                            _frontPreviewWebView.Source = new HtmlWebViewSource { Html = baseHtml };
+                            _frontPreviewReady = true;
+                            
+                            // 少し遅延してからコンテンツを更新
+                            Device.StartTimer(TimeSpan.FromMilliseconds(300), () =>
+                            {
+                                MainThread.BeginInvokeOnMainThread(async () =>
+                                {
+                                    await UpdateWebViewContent(_frontPreviewWebView, markdown, false);
+                                    await _frontPreviewWebView.FadeTo(1, 150);
+                                });
+                                return false;
+                            });
+                        }
+                        else
+                        {
+                            // 2回目以降はコンテンツ部分のみ更新
+                            await UpdateWebViewContent(_frontPreviewWebView, markdown, false);
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -1066,23 +1103,46 @@ namespace Flashnote.Services
         /// </summary>
         private void UpdateBackPreviewWithDebounce()
         {
-            if (_backTextEditor == null || _backPreviewLabel == null) return;
+            if (_backTextEditor == null || _backPreviewWebView == null) return;
             
             // 既存のタイマーを停止
             _backPreviewTimer?.Stop();
             _backPreviewTimer?.Dispose();
             
-            // 新しいタイマーを作成（300ms後に実行）
-            _backPreviewTimer = new System.Timers.Timer(300);
+            // 新しいタイマーを作成（500ms後に実行）
+            _backPreviewTimer = new System.Timers.Timer(500);
             _backPreviewTimer.Elapsed += (s, e) =>
             {
-                MainThread.BeginInvokeOnMainThread(() =>
+                Device.BeginInvokeOnMainThread(async () =>
                 {
                     try
                     {
                         var markdown = _backTextEditor.Text ?? "";
-                        _backPreviewLabel.RichText = markdown;
-                        _backPreviewLabel.ShowAnswer = false;
+                        
+                        // JavaScript手法を使用：初回のみベースHTMLを設定
+                        if (!_backPreviewReady)
+                        {
+                            var baseHtml = CreateBaseHtmlTemplate();
+                            SetWebViewBackgroundColor(_backPreviewWebView);
+                            _backPreviewWebView.Source = new HtmlWebViewSource { Html = baseHtml };
+                            _backPreviewReady = true;
+                            
+                            // 少し遅延してからコンテンツを更新
+                            Device.StartTimer(TimeSpan.FromMilliseconds(300), () =>
+                            {
+                                MainThread.BeginInvokeOnMainThread(async () =>
+                                {
+                                    await UpdateWebViewContent(_backPreviewWebView, markdown, false);
+                                    await _backPreviewWebView.FadeTo(1, 150);
+                                });
+                                return false;
+                            });
+                        }
+                        else
+                        {
+                            // 2回目以降はコンテンツ部分のみ更新
+                            await UpdateWebViewContent(_backPreviewWebView, markdown, false);
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -1102,23 +1162,46 @@ namespace Flashnote.Services
         /// </summary>
         private void UpdateChoiceQuestionPreviewWithDebounce()
         {
-            if (_choiceQuestion == null || _choiceQuestionPreviewLabel == null) return;
+            if (_choiceQuestion == null || _choiceQuestionPreviewWebView == null) return;
             
             // 既存のタイマーを停止
             _choiceQuestionPreviewTimer?.Stop();
             _choiceQuestionPreviewTimer?.Dispose();
             
-            // 新しいタイマーを作成（300ms後に実行）
-            _choiceQuestionPreviewTimer = new System.Timers.Timer(300);
+            // 新しいタイマーを作成（500ms後に実行）
+            _choiceQuestionPreviewTimer = new System.Timers.Timer(500);
             _choiceQuestionPreviewTimer.Elapsed += (s, e) =>
             {
-                MainThread.BeginInvokeOnMainThread(() =>
+                Device.BeginInvokeOnMainThread(async () =>
                 {
                     try
                     {
                         var markdown = _choiceQuestion.Text ?? "";
-                        _choiceQuestionPreviewLabel.RichText = markdown;
-                        _choiceQuestionPreviewLabel.ShowAnswer = false;
+                        
+                        // JavaScript手法を使用：初回のみベースHTMLを設定
+                        if (!_choiceQuestionPreviewReady)
+                        {
+                            var baseHtml = CreateBaseHtmlTemplate();
+                            SetWebViewBackgroundColor(_choiceQuestionPreviewWebView);
+                            _choiceQuestionPreviewWebView.Source = new HtmlWebViewSource { Html = baseHtml };
+                            _choiceQuestionPreviewReady = true;
+                            
+                            // 少し遅延してからコンテンツを更新
+                            Device.StartTimer(TimeSpan.FromMilliseconds(300), () =>
+                            {
+                                MainThread.BeginInvokeOnMainThread(async () =>
+                                {
+                                    await UpdateWebViewContent(_choiceQuestionPreviewWebView, markdown, false);
+                                    await _choiceQuestionPreviewWebView.FadeTo(1, 150);
+                                });
+                                return false;
+                            });
+                        }
+                        else
+                        {
+                            // 2回目以降はコンテンツ部分のみ更新
+                            await UpdateWebViewContent(_choiceQuestionPreviewWebView, markdown, false);
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -1138,23 +1221,46 @@ namespace Flashnote.Services
         /// </summary>
         private void UpdateChoiceExplanationPreviewWithDebounce()
         {
-            if (_choiceQuestionExplanation == null || _choiceExplanationPreviewLabel == null) return;
+            if (_choiceQuestionExplanation == null || _choiceExplanationPreviewWebView == null) return;
             
             // 既存のタイマーを停止
             _choiceExplanationPreviewTimer?.Stop();
             _choiceExplanationPreviewTimer?.Dispose();
             
-            // 新しいタイマーを作成（300ms後に実行）
-            _choiceExplanationPreviewTimer = new System.Timers.Timer(300);
+            // 新しいタイマーを作成（500ms後に実行）
+            _choiceExplanationPreviewTimer = new System.Timers.Timer(500);
             _choiceExplanationPreviewTimer.Elapsed += (s, e) =>
             {
-                MainThread.BeginInvokeOnMainThread(() =>
+                Device.BeginInvokeOnMainThread(async () =>
                 {
                     try
                     {
                         var markdown = _choiceQuestionExplanation.Text ?? "";
-                        _choiceExplanationPreviewLabel.RichText = markdown;
-                        _choiceExplanationPreviewLabel.ShowAnswer = false;
+                        
+                        // JavaScript手法を使用：初回のみベースHTMLを設定
+                        if (!_choiceExplanationPreviewReady)
+                        {
+                            var baseHtml = CreateBaseHtmlTemplate();
+                            SetWebViewBackgroundColor(_choiceExplanationPreviewWebView);
+                            _choiceExplanationPreviewWebView.Source = new HtmlWebViewSource { Html = baseHtml };
+                            _choiceExplanationPreviewReady = true;
+                            
+                            // 少し遅延してからコンテンツを更新
+                            Device.StartTimer(TimeSpan.FromMilliseconds(300), () =>
+                            {
+                                MainThread.BeginInvokeOnMainThread(async () =>
+                                {
+                                    await UpdateWebViewContent(_choiceExplanationPreviewWebView, markdown, false);
+                                    await _choiceExplanationPreviewWebView.FadeTo(1, 150);
+                                });
+                                return false;
+                            });
+                        }
+                        else
+                        {
+                            // 2回目以降はコンテンツ部分のみ更新
+                            await UpdateWebViewContent(_choiceExplanationPreviewWebView, markdown, false);
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -1642,7 +1748,57 @@ namespace Flashnote.Services
             }
         }
 
+        /// <summary>
+        /// 表面プレビューナビゲーション完了イベント
+        /// </summary>
+        private async void OnFrontPreviewNavigated(object sender, WebNavigatedEventArgs e)
+        {
+            try
+            {
+                if (e.Result == WebNavigationResult.Success && !_frontPreviewReady)
+                {
+                    _frontPreviewReady = true;
+                    
+                    // 少し待ってからフェードイン（CSSの適用を確実にするため）
+                    await Task.Delay(100);
+                    
+                    if (_frontPreviewWebView != null)
+                    {
+                        await _frontPreviewWebView.FadeTo(1, 150); // 150ms でフェードイン
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"表面プレビューナビゲーション完了エラー: {ex.Message}");
+            }
+        }
 
+        /// <summary>
+        /// 裏面プレビューナビゲーション完了イベント
+        /// </summary>
+        private async void OnBackPreviewNavigated(object sender, WebNavigatedEventArgs e)
+        {
+            try
+            {
+                if (e.Result == WebNavigationResult.Success && !_backPreviewReady)
+                {
+                    _backPreviewReady = true;
+                    
+                    // 少し待ってからフェードイン（CSSの適用を確実にするため）
+                    await Task.Delay(100);
+                    
+                    if (_backPreviewWebView != null)
+                    {
+                        await _backPreviewWebView.FadeTo(1, 150); // 150ms でフェードイン
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"裏面プレビューナビゲーション完了エラー: {ex.Message}");
+            }
+        }
 
         /// <summary>
         /// リソース解放
@@ -1651,18 +1807,23 @@ namespace Flashnote.Services
         {
             try
             {
+                // イベントハンドラーを解除
+                if (_frontPreviewWebView != null)
+                {
+                    _frontPreviewWebView.Navigated -= OnFrontPreviewNavigated;
+                }
+                
+                if (_backPreviewWebView != null)
+                {
+                    _backPreviewWebView.Navigated -= OnBackPreviewNavigated;
+                }
+                
                 // タイマーを停止・解放
                 _frontPreviewTimer?.Stop();
                 _frontPreviewTimer?.Dispose();
                 
                 _backPreviewTimer?.Stop();
                 _backPreviewTimer?.Dispose();
-                
-                _choiceQuestionPreviewTimer?.Stop();
-                _choiceQuestionPreviewTimer?.Dispose();
-                
-                _choiceExplanationPreviewTimer?.Stop();
-                _choiceExplanationPreviewTimer?.Dispose();
                 
                 _autoSaveTimer?.Stop();
                 _autoSaveTimer?.Dispose();
@@ -1673,7 +1834,55 @@ namespace Flashnote.Services
             }
         }
 
+        /// <summary>
+        /// WebViewの背景色を設定（ダークモード対応）
+        /// </summary>
+        private void SetWebViewBackgroundColor(WebView webView)
+        {
+            if (webView == null) return;
+            
+            try
+            {
+                var isDarkMode = Application.Current?.RequestedTheme == AppTheme.Dark;
+                var backgroundColor = isDarkMode ? Color.FromRgb(31, 31, 31) : Colors.White;
+                webView.BackgroundColor = backgroundColor;
+                
+                // プラットフォーム固有の設定を追加
+                try
+                {
+#if ANDROID
+                    if (webView.Handler?.PlatformView is Android.Webkit.WebView androidWebView)
+                    {
+                        var bgColor = isDarkMode ? Android.Graphics.Color.Rgb(31, 31, 31) : Android.Graphics.Color.White;
+                        androidWebView.SetBackgroundColor(bgColor);
+                    }
+#endif
 
+#if IOS
+                    if (webView.Handler?.PlatformView is WebKit.WKWebView wkWebView)
+                    {
+                        wkWebView.BackgroundColor = isDarkMode ? UIKit.UIColor.FromRGB(31, 31, 31) : UIKit.UIColor.White;
+                        wkWebView.ScrollView.BackgroundColor = isDarkMode ? UIKit.UIColor.FromRGB(31, 31, 31) : UIKit.UIColor.White;
+                    }
+#endif
+
+#if WINDOWS
+                    // Windows WebView2の場合は基本的なWebView設定のみ
+                    // より詳細な設定が必要な場合は将来的に追加
+#endif
+                }
+                catch (Exception platformEx)
+                {
+                    Debug.WriteLine($"プラットフォーム固有設定エラー: {platformEx.Message}");
+                }
+                
+                Debug.WriteLine($"WebView背景色設定: {(isDarkMode ? "ダーク" : "ライト")}モード");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"WebView背景色設定エラー: {ex.Message}");
+            }
+        }
 
         /// <summary>
         /// カードデータを読み込み
@@ -2722,7 +2931,57 @@ namespace Flashnote.Services
             AddChoiceItem("", false);
         }
 
+        /// <summary>
+        /// 選択肢問題プレビューナビゲーション完了イベント
+        /// </summary>
+        private async void OnChoiceQuestionPreviewNavigated(object sender, WebNavigatedEventArgs e)
+        {
+            try
+            {
+                if (e.Result == WebNavigationResult.Success && !_choiceQuestionPreviewReady)
+                {
+                    _choiceQuestionPreviewReady = true;
+                    
+                    // 少し待ってからフェードイン（CSSの適用を確実にするため）
+                    await Task.Delay(100);
+                    
+                    if (_choiceQuestionPreviewWebView != null)
+                    {
+                        await _choiceQuestionPreviewWebView.FadeTo(1, 150); // 150ms でフェードイン
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"選択肢問題プレビューナビゲーション完了エラー: {ex.Message}");
+            }
+        }
 
+        /// <summary>
+        /// 選択肢解説プレビューナビゲーション完了イベント
+        /// </summary>
+        private async void OnChoiceExplanationPreviewNavigated(object sender, WebNavigatedEventArgs e)
+        {
+            try
+            {
+                if (e.Result == WebNavigationResult.Success && !_choiceExplanationPreviewReady)
+                {
+                    _choiceExplanationPreviewReady = true;
+                    
+                    // 少し待ってからフェードイン（CSSの適用を確実にするため）
+                    await Task.Delay(100);
+                    
+                    if (_choiceExplanationPreviewWebView != null)
+                    {
+                        await _choiceExplanationPreviewWebView.FadeTo(1, 150); // 150ms でフェードイン
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"選択肢解説プレビューナビゲーション完了エラー: {ex.Message}");
+            }
+        }
 
         /// <summary>
         /// キャンバス描画イベント
@@ -2873,7 +3132,124 @@ namespace Flashnote.Services
             }
         }
 
+        /// <summary>
+        /// Markdown を HTML に変換
+        /// </summary>
+        private string ConvertMarkdownToHtml(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return "";
 
+            // 画像タグを最初に処理 - iOS版の形式に対応
+            var matches = Regex.Matches(text, @"<<img_\d{8}_\d{6}\.jpg>>");
+            Debug.WriteLine($"画像タグ数: {matches.Count}");
+            foreach (Match match in matches)
+            {
+                string imgFileName = match.Value.Trim('<', '>');
+                string imgPath = Path.Combine(_tempExtractPath, "img", imgFileName);
+
+                if (File.Exists(imgPath))
+                {
+                    string base64Image = ConvertImageToBase64(imgPath);
+                    if (base64Image != null)
+                    {
+                        text = text.Replace(match.Value, $"<img src={base64Image} style=max-height:150px; />");
+                    }
+                    else
+                    {
+                        text = text.Replace(match.Value, $"[画像が見つかりません: {imgFileName}]");
+                    }
+                }
+                else
+                {
+                    text = text.Replace(match.Value, $"[画像が見つかりません: {imgFileName}]");
+                }
+            }
+
+            // 穴埋め変換 `<<blank|文字>>` → `(文字)`
+            text = Regex.Replace(text, @"<<blank\|(.*?)>>", "( )");
+
+            // HTML エスケープ
+            text = HttpUtility.HtmlEncode(text);
+
+            // 太字変換
+            text = Regex.Replace(text, @"\*\*(.*?)\*\*", "<b>$1</b>");
+
+            // 色変換
+            text = Regex.Replace(text, @"\{\{red\|(.*?)\}\}", "<span style='color:red;'>$1</span>");
+            text = Regex.Replace(text, @"\{\{blue\|(.*?)\}\}", "<span style='color:blue;'>$1</span>");
+            text = Regex.Replace(text, @"\{\{green\|(.*?)\}\}", "<span style='color:green;'>$1</span>");
+            text = Regex.Replace(text, @"\{\{yellow\|(.*?)\}\}", "<span style='color:yellow;'>$1</span>");
+            text = Regex.Replace(text, @"\{\{purple\|(.*?)\}\}", "<span style='color:purple;'>$1</span>");
+            text = Regex.Replace(text, @"\{\{orange\|(.*?)\}\}", "<span style='color:orange;'>$1</span>");
+
+            // 上付き・下付き変換
+            text = Regex.Replace(text, @"\^\^(.*?)\^\^", "<sup>$1</sup>");
+            text = Regex.Replace(text, @"~~(.*?)~~", "<sub>$1</sub>");
+
+            // 必要な部分だけデコード処理
+            text = Regex.Replace(text, @"&lt;img(.*?)&gt;", "<img$1>");
+
+            // 改行を `<br>` に変換
+            text = text.Replace(Environment.NewLine, "<br>").Replace("\n", "<br>");
+
+            // ダークモード対応のスタイル
+            var isDarkMode = Application.Current?.RequestedTheme == AppTheme.Dark;
+            var backgroundColor = isDarkMode ? "#1f1f1f" : "#ffffff";
+            var textColor = isDarkMode ? "#ffffff" : "#000000";
+
+            // HTML テンプレート
+            string htmlTemplate = $@"
+            <html style='background-color: {backgroundColor};'>
+            <head>
+                <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+                <style>
+                    html {{ 
+                        background-color: {backgroundColor} !important; 
+                    }}
+                    body {{ 
+                        font-size: 18px; 
+                        font-family: Arial, sans-serif; 
+                        line-height: 1.5; 
+                        background-color: {backgroundColor} !important; 
+                        color: {textColor}; 
+                        margin: 0; 
+                        padding: 10px; 
+                        transition: none;
+                    }}
+                    sup {{ vertical-align: super; font-size: smaller; }}
+                    sub {{ vertical-align: sub; font-size: smaller; }}
+                    img {{ display: block; margin: 10px 0; }}
+                </style>
+            </head>
+            <body style='background-color: {backgroundColor};'>{text}</body>
+            </html>";
+
+            return htmlTemplate;
+        }
+
+        /// <summary>
+        /// 画像をBase64に変換
+        /// </summary>
+        private string ConvertImageToBase64(string imagePath)
+        {
+            if (!File.Exists(imagePath))
+            {
+                return null;
+            }
+
+            byte[] imageBytes = File.ReadAllBytes(imagePath);
+            string base64String = Convert.ToBase64String(imageBytes);
+            string mimeType = Path.GetExtension(imagePath).ToLower() switch
+            {
+                ".png" => "image/png",
+                ".jpg" => "image/jpg",
+                ".jpeg" => "image/jpeg",
+                ".gif" => "image/gif",
+                _ => "application/octet-stream"
+            };
+
+            return $"data:{mimeType};base64,{base64String}";
+        }
 
         /// <summary>
         /// リッチテキスト貼り付け機能を有効化
@@ -3143,8 +3519,12 @@ namespace Flashnote.Services
                         
                         if (File.Exists(imgPath))
                         {
-                            // RichTextLabelでは画像タグをそのまま保持
-                            // markdownText = markdownText.Replace(match.Value, $"[画像: {imgFileName}]");
+                            // 画像をBase64に変換してHTMLタグに置換
+                            string base64Image = ConvertImageToBase64(imgPath);
+                            if (base64Image != null)
+                            {
+                                markdownText = markdownText.Replace(match.Value, $"[画像: {imgFileName}]");
+                            }
                         }
                     }
                     
@@ -3479,6 +3859,313 @@ namespace Flashnote.Services
             }
         }
 
+        /// <summary>
+        /// ベースHTMLテンプレートを作成（JavaScript機能付き）
+        /// </summary>
+        private string CreateBaseHtmlTemplate()
+        {
+            var isDarkMode = Application.Current?.RequestedTheme == AppTheme.Dark;
+            var backgroundColor = isDarkMode ? "#1E1E1E" : "#FFFFFF";
+            var textColor = isDarkMode ? "#FFFFFF" : "#000000";
+            var codeBackground = isDarkMode ? "#2D2D30" : "#F5F5F5";
+            var redColor = isDarkMode ? "#FF6B6B" : "red";
+            
+            return $@"
+            <html>
+            <head>
+                <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+                <style>
+                    body {{ 
+                        font-size: 18px; 
+                        font-family: Arial, sans-serif; 
+                        line-height: 1.5; 
+                        background-color: {backgroundColor};
+                        color: {textColor};
+                        margin: 10px;
+                        padding: 10px;
+                        min-height: 100vh;
+                    }}
+                    sup {{ vertical-align: super; font-size: smaller; }}
+                    sub {{ vertical-align: sub; font-size: smaller; }}
+                    img {{ 
+                        display: block; 
+                        margin: 10px 0; 
+                        border-radius: 8px;
+                        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+                        max-height: 150px;
+                    }}
+                    code {{
+                        background-color: {codeBackground};
+                        padding: 2px 4px;
+                        border-radius: 4px;
+                        font-family: 'Courier New', monospace;
+                    }}
+                    pre {{
+                        background-color: {codeBackground};
+                        padding: 10px;
+                        border-radius: 8px;
+                        overflow-x: auto;
+                    }}
+                    .blank-placeholder {{
+                        min-width: 20px;
+                        display: inline-block;
+                    }}
+                    #main-content {{
+                        opacity: 1;
+                        transition: opacity 0.3s ease;
+                    }}
+                    .loading {{
+                        opacity: 0.5;
+                    }}
+                    p {{
+                        margin: 0 0 10px 0;
+                        padding: 0;
+                    }}
+                    p:last-child {{
+                        margin-bottom: 0;
+                    }}
+                </style>
+                <script>
+                    function updateContent(content) {{
+                        var mainContent = document.getElementById('main-content');
+                        if (mainContent) {{
+                            mainContent.innerHTML = content;
+                        }}
+                    }}
+                    
+                    function showAllAnswers() {{
+                        var blanks = document.querySelectorAll('.blank-placeholder');
+                        blanks.forEach(function(blank) {{
+                            var answer = blank.getAttribute('data-answer');
+                            if (answer) {{
+                                blank.textContent = answer;
+                                blank.style.color = '{redColor}';
+                            }}
+                        }});
+                    }}
+                    
+                    function showAnswer(blankId, answer) {{
+                        var element = document.getElementById(blankId);
+                        if (element) {{
+                            element.textContent = answer;
+                            element.style.color = '{redColor}';
+                        }}
+                    }}
+                    
+                    function insertText(elementId, text) {{
+                        var element = document.getElementById(elementId);
+                        if (element) {{
+                            element.innerHTML = text;
+                        }}
+                    }}
+                    
+                    function setLoading(isLoading) {{
+                        var mainContent = document.getElementById('main-content');
+                        if (isLoading) {{
+                            mainContent.classList.add('loading');
+                        }} else {{
+                            mainContent.classList.remove('loading');
+                        }}
+                    }}
+                </script>
+            </head>
+            <body>
+                <div id='main-content'>読み込み中...</div>
+            </body>
+            </html>";
+        }
 
+        /// <summary>
+        /// コンテンツ部分のみのHTMLを生成
+        /// </summary>
+        private string ConvertToContentHtml(string text, bool showAnswer = false)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return "";
+
+            // 画像タグを最初に処理
+            var matches = Regex.Matches(text, @"<<img_.*?\.jpg>>");
+            Debug.WriteLine($"画像タグ数: {matches.Count}");
+            foreach (Match match in matches)
+            {
+                string imgFileName = match.Value.Trim('<', '>');
+                string imgPath = Path.Combine(_tempExtractPath, "img", imgFileName);
+
+                if (File.Exists(imgPath))
+                {
+                    string base64Image = ConvertImageToBase64(imgPath);
+                    if (base64Image != null)
+                    {
+                        text = text.Replace(match.Value, $"<img src={base64Image} style=max-height:150px; />");
+                    }
+                    else
+                    {
+                        text = text.Replace(match.Value, $"[画像が見つかりません: {imgFileName}]");
+                    }
+                }
+                else
+                {
+                    text = text.Replace(match.Value, $"[画像が見つかりません: {imgFileName}]");
+                }
+            }
+
+            // 穴埋め表示処理（JavaScript操作用のIDを付与）
+            var isDarkMode = Application.Current?.RequestedTheme == AppTheme.Dark;
+            var redColor = isDarkMode ? "#FF6B6B" : "red";
+            
+            int blankCounter = 0;
+            if (showAnswer)
+            {
+                // 解答表示時は `<<blank|文字>>` → `(文字)`
+                text = Regex.Replace(text, @"<<blank\|(.*?)>>", match =>
+                {
+                    blankCounter++;
+                    var answer = match.Groups[1].Value;
+                    return $"(<span id='blank_{blankCounter}' style='color:{redColor};'>{answer}</span>)";
+                });
+            }
+            else
+            {
+                // 問題表示時は `<<blank|文字>>` → `( )` （後でJavaScriptで操作可能）
+                text = Regex.Replace(text, @"<<blank\|(.*?)>>", match =>
+                {
+                    blankCounter++;
+                    var answer = match.Groups[1].Value;
+                    return $"(<span id='blank_{blankCounter}' data-answer='{HttpUtility.HtmlEncode(answer)}' class='blank-placeholder'> </span>)";
+                });
+            }
+
+            // 改行の正規化と段落処理
+            text = text.Replace("\r\n", "\n").Replace("\r", "\n");
+            
+            // 穴埋めのspanタグとimgタグを一時的に保護
+            var protectedElements = new List<string>();
+            int elementIndex = 0;
+            
+            // spanタグを保護
+            text = Regex.Replace(text, @"<span[^>]*>.*?</span>", match =>
+            {
+                var placeholder = $"__ELEMENT_PLACEHOLDER_{elementIndex}__";
+                protectedElements.Add(match.Value);
+                elementIndex++;
+                return placeholder;
+            });
+            
+            // imgタグを保護
+            text = Regex.Replace(text, @"<img[^>]*>", match =>
+            {
+                var placeholder = $"__ELEMENT_PLACEHOLDER_{elementIndex}__";
+                protectedElements.Add(match.Value);
+                elementIndex++;
+                return placeholder;
+            });
+
+            // HTML エスケープ
+            text = HttpUtility.HtmlEncode(text);
+
+            // 保護された要素を復元
+            for (int i = 0; i < protectedElements.Count; i++)
+            {
+                text = text.Replace($"__ELEMENT_PLACEHOLDER_{i}__", protectedElements[i]);
+            }
+
+            // 太字変換
+            text = Regex.Replace(text, @"\*\*(.*?)\*\*", "<b>$1</b>");
+
+            // ダークモード対応の色変換
+            var blueColor = isDarkMode ? "#6BB6FF" : "blue";
+            var greenColor = isDarkMode ? "#90EE90" : "green";
+            var yellowColor = isDarkMode ? "#FFD700" : "yellow";
+            var purpleColor = isDarkMode ? "#DA70D6" : "purple";
+            var orangeColor = isDarkMode ? "#FFA500" : "orange";
+            
+            text = Regex.Replace(text, @"\{\{red\|(.*?)\}\}", $"<span style='color:{redColor};'>$1</span>");
+            text = Regex.Replace(text, @"\{\{blue\|(.*?)\}\}", $"<span style='color:{blueColor};'>$1</span>");
+            text = Regex.Replace(text, @"\{\{green\|(.*?)\}\}", $"<span style='color:{greenColor};'>$1</span>");
+            text = Regex.Replace(text, @"\{\{yellow\|(.*?)\}\}", $"<span style='color:{yellowColor};'>$1</span>");
+            text = Regex.Replace(text, @"\{\{purple\|(.*?)\}\}", $"<span style='color:{purpleColor};'>$1</span>");
+            text = Regex.Replace(text, @"\{\{orange\|(.*?)\}\}", $"<span style='color:{orangeColor};'>$1</span>");
+
+            // 上付き・下付き変換
+            text = Regex.Replace(text, @"\^\^(.*?)\^\^", "<sup>$1</sup>");
+            text = Regex.Replace(text, @"~~(.*?)~~", "<sub>$1</sub>");
+
+            // 必要な部分だけデコード処理
+            text = Regex.Replace(text, @"&lt;img(.*?)&gt;", "<img$1>");
+            text = Regex.Replace(text, @"&lt;span(.*?)&gt;", "<span$1>");
+            text = Regex.Replace(text, @"&lt;/span&gt;", "</span>");
+
+            // 改行処理：連続する空行を段落として処理
+            var lines = text.Split('\n');
+            var processedLines = new List<string>();
+            
+            for (int i = 0; i < lines.Length; i++)
+            {
+                var line = lines[i].Trim();
+                
+                if (string.IsNullOrEmpty(line))
+                {
+                    // 空行の場合、段落区切りとして処理
+                    if (processedLines.Count > 0 && !processedLines.Last().EndsWith("</p>"))
+                    {
+                        processedLines.Add("</p><p>");
+                    }
+                }
+                else
+                {
+                    // 最初の行の場合はpタグで開始
+                    if (processedLines.Count == 0)
+                    {
+                        processedLines.Add("<p>" + line);
+                    }
+                    else if (processedLines.Last().EndsWith("</p><p>"))
+                    {
+                        // 新しい段落の最初の行
+                        processedLines[processedLines.Count - 1] = processedLines.Last() + line;
+                    }
+                    else
+                    {
+                        // 同じ段落内での改行
+                        processedLines.Add("<br>" + line);
+                    }
+                }
+            }
+            
+            // 最後にpタグを閉じる
+            if (processedLines.Count > 0 && !processedLines.Last().EndsWith("</p>"))
+            {
+                processedLines.Add("</p>");
+            }
+            
+            text = string.Join("", processedLines);
+
+            return text;
+        }
+
+        /// <summary>
+        /// WebViewのコンテンツ部分のみを更新
+        /// </summary>
+        private async Task UpdateWebViewContent(WebView webView, string text, bool showAnswer = false)
+        {
+            try
+            {
+                var contentHtml = ConvertToContentHtml(text, showAnswer);
+                var escapedContent = contentHtml.Replace("'", "\\'").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "");
+                
+                await webView.EvaluateJavaScriptAsync($"updateContent('{escapedContent}');");
+                Debug.WriteLine("WebViewコンテンツ更新完了");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"WebViewコンテンツ更新エラー: {ex.Message}");
+                // フォールバック：HTML全体を再読み込み
+                var fullHtml = ConvertMarkdownToHtml(text);
+                webView.Source = new HtmlWebViewSource { Html = fullHtml };
+            }
+        }
+
+        /// <summary>
+        /// WebView初期化フラグ
+        /// </summary>
+        private bool _webViewInitialized = false;
     }
 } 

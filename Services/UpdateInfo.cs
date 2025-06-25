@@ -1,4 +1,4 @@
-namespace Flashnote.Services
+namespace AnkiPlus_MAUI.Services
 {
     public class UpdateInfo
     {

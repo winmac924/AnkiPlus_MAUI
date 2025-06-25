@@ -2,7 +2,7 @@ using System;
 using System.Threading;
 using Microsoft.Maui.Controls;
 
-namespace Flashnote;
+namespace AnkiPlus_MAUI;
 
 public partial class UpdateProgressPage : ContentPage
 {

@@ -1,6 +1,6 @@
 using System.Reflection;
 
-namespace Flashnote.Services;
+namespace AnkiPlus_MAUI.Services;
 
 public static class VersionHelper
 {
@@ -52,9 +52,9 @@ public static class VersionHelper
     {
         return new AppVersionInfo
         {
-            Name = "Flashnote",
+            Name = "AnkiPlus MAUI",
             Version = GetCurrentVersion(),
-            PackageName = "winmac924.flashnote.maui",
+            PackageName = "com.ankiplus.maui",
             BuildString = GetCurrentVersion()
         };
     }

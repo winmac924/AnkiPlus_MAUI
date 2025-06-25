@@ -1,7 +1,7 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 
-namespace Flashnote.Services;
+namespace AnkiPlus_MAUI.Services;
 
 public class GitHubUpdateService
 {
@@ -19,7 +19,7 @@ public class GitHubUpdateService
         _logger = logger;
         
         // GitHub API用のUser-Agentヘッダーを設定（必須）
-        _httpClient.DefaultRequestHeaders.Add("User-Agent", "Flashnote-MAUI-UpdateClient");
+        _httpClient.DefaultRequestHeaders.Add("User-Agent", "AnkiPlus-MAUI-UpdateClient");
     }
 
     public async Task<UpdateInfo?> CheckForUpdatesAsync()
@@ -331,11 +331,13 @@ public class GitHubUpdateService
             var backupPath = currentExePath + ".backup";
             
             // アップデート用バッチファイルを作成（英語メッセージでエンコーディング問題を回避）
-            var batchPath = Path.Combine(Path.GetTempPath(), "Flashnote_Update.bat");
+            var batchPath = Path.Combine(Path.GetTempPath(), "AnkiPlus_Update.bat");
             var batchContent = $@"@echo off
-title Flashnote Update
+title AnkiPlus MAUI Update
 echo.
-echo   Flashnote Update in Progress...
+echo ==========================================
+echo   AnkiPlus MAUI Update in Progress...
+echo ==========================================
 echo.
 
 REM Wait for application to completely exit
@@ -451,7 +453,7 @@ del ""%~f0""
     {
         try
         {
-            var extractPath = Path.Combine(Path.GetTempPath(), "Flashnote_Update");
+            var extractPath = Path.Combine(Path.GetTempPath(), "AnkiPlus_Update");
             if (Directory.Exists(extractPath))
                 Directory.Delete(extractPath, true);
                 

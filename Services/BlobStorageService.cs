@@ -5,7 +5,7 @@ using System.IO;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace Flashnote.Services
+namespace AnkiPlus_MAUI.Services
 {
     public class BlobStorageService
     {
@@ -13,7 +13,7 @@ namespace Flashnote.Services
         private const string CONTAINER_NAME = "flashnote";
         private bool _isInitialized = false;
         private static readonly string FolderPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Flashnote");
+            Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "AnkiPlus");
 
         public BlobStorageService()
         {
@@ -108,40 +108,50 @@ namespace Flashnote.Services
                 var notes = new List<string>();
                 var processedNames = new HashSet<string>();
 
-                // cards.txtファイルのみを対象とした効率的な検索
-                // Azure Blob Storageのプレフィックス検索を使用し、cards.txtパターンに一致するもののみを処理
-                // 注：Azure Blob Storage .NET SDKでは suffix 検索は未対応のため、早期フィルタリングで最適化
                 await foreach (var blob in containerClient.GetBlobsAsync(prefix: userPath))
                 {
-                    // cards.txtで終わらないファイルは早期にスキップ（効率化）
-                    if (!blob.Name.EndsWith("/cards.txt"))
-                        continue;
-
-                    Debug.WriteLine($"見つかったcards.txt: {blob.Name}");
-                    var (parsedSubFolder, noteName, isCard) = ParseBlobPath(blob.Name);
-                    Debug.WriteLine($"パース結果 - サブフォルダ: {parsedSubFolder}, ノート名: {noteName}");
+                    Debug.WriteLine($"見つかったBlob: {blob.Name}");
                     
-                    if (noteName != null && !processedNames.Contains(noteName))
+                    // cards.txtのみを処理
+                    if (blob.Name.EndsWith("/cards.txt"))
                     {
-                        // サブフォルダが指定されている場合、そのサブフォルダ内のノートのみを対象とする
-                        if (subFolder != null)
+                        var (parsedSubFolder, noteName, isCard) = ParseBlobPath(blob.Name);
+                        Debug.WriteLine($"パース結果 - サブフォルダ: {parsedSubFolder}, ノート名: {noteName}, カード: {isCard}");
+                        
+                        if (noteName != null && !processedNames.Contains(noteName))
                         {
-                            if (parsedSubFolder == subFolder)
+                            // サブフォルダが指定されている場合、そのサブフォルダ内のノートのみを対象とする
+                            if (subFolder != null)
                             {
-                                notes.Add(noteName);
-                                processedNames.Add(noteName);
-                                Debug.WriteLine($"追加されたノート: {noteName}");
+                                if (parsedSubFolder == subFolder)
+                                {
+                                    notes.Add(noteName);
+                                    processedNames.Add(noteName);
+                                    Debug.WriteLine($"追加されたノート: {noteName} (パス: {blob.Name})");
+                                }
+                                else
+                                {
+                                    Debug.WriteLine($"サブフォルダが一致しないためスキップ: 期待={subFolder}, 実際={parsedSubFolder}");
+                                }
+                            }
+                            else
+                            {
+                                // サブフォルダが指定されていない場合、ルートのノートのみを対象とする
+                                if (parsedSubFolder == null)
+                                {
+                                    notes.Add(noteName);
+                                    processedNames.Add(noteName);
+                                    Debug.WriteLine($"追加されたルートノート: {noteName} (パス: {blob.Name})");
+                                }
+                                else
+                                {
+                                    Debug.WriteLine($"サブフォルダ内のノートをスキップ（ルート取得時）: {parsedSubFolder}/{noteName}");
+                                }
                             }
                         }
-                        else
+                        else if (processedNames.Contains(noteName))
                         {
-                            // サブフォルダが指定されていない場合、ルートのノートのみを対象とする
-                            if (parsedSubFolder == null)
-                            {
-                                notes.Add(noteName);
-                                processedNames.Add(noteName);
-                                Debug.WriteLine($"追加されたルートノート: {noteName}");
-                            }
+                            Debug.WriteLine($"既に処理済みのノートをスキップ: {noteName}");
                         }
                     }
                 }
@@ -293,27 +303,27 @@ namespace Flashnote.Services
                 var containerClient = _blobServiceClient.GetBlobContainerClient(CONTAINER_NAME);
                 var folders = new HashSet<string>();
 
-                // cards.txtファイルのみを対象とした効率的な検索
                 await foreach (var blob in containerClient.GetBlobsAsync(prefix: $"{uid}/"))
                 {
-                    // cards.txtで終わらないファイルは早期にスキップ（効率化）
-                    if (!blob.Name.EndsWith("/cards.txt"))
-                        continue;
-
-                    Debug.WriteLine($"見つかったcards.txt: {blob.Name}");
-                    var parts = blob.Name.Split('/');
-                    if (parts.Length >= 3)
+                    Debug.WriteLine($"見つかったBlob: {blob.Name}");
+                    
+                    // cards.txtのパスからサブフォルダを取得
+                    if (blob.Name.EndsWith("/cards.txt"))
                     {
-                        // UIDを除外し、cards.txtの親フォルダまでのパスを取得
-                        var remainingParts = parts.Skip(1).Take(parts.Length - 2).ToArray();
-                        if (remainingParts.Length > 0)
+                        var parts = blob.Name.Split('/');
+                        if (parts.Length >= 3)
                         {
-                            // 最初のディレクトリがサブフォルダ
-                            var subFolder = remainingParts[0];
-                            if (!string.IsNullOrEmpty(subFolder))
+                            // UIDを除外し、cards.txtの親フォルダまでのパスを取得
+                            var remainingParts = parts.Skip(1).Take(parts.Length - 2).ToArray();
+                            if (remainingParts.Length > 0)
                             {
-                                folders.Add(subFolder);
-                                Debug.WriteLine($"サブフォルダを追加: {subFolder}");
+                                // 最初のディレクトリがサブフォルダ
+                                var subFolder = remainingParts[0];
+                                if (!string.IsNullOrEmpty(subFolder))
+                                {
+                                    folders.Add(subFolder);
+                                    Debug.WriteLine($"サブフォルダを追加: {subFolder} (パス: {blob.Name})");
+                                }
                             }
                         }
                     }
@@ -485,12 +495,14 @@ namespace Flashnote.Services
                 
                 await foreach (var blob in containerClient.GetBlobsAsync(prefix: prefix))
                 {
+                    Debug.WriteLine($"見つかった共有ファイル: {blob.Name}");
+                    
                     // プレフィックス以降のファイル名のみを抽出
                     var relativePath = blob.Name.Substring(prefix.Length);
                     if (!string.IsNullOrEmpty(relativePath) && !relativePath.Contains("/"))
                     {
                         files.Add(relativePath);
-                        Debug.WriteLine($"見つかった共有ファイル: {relativePath}");
+                        Debug.WriteLine($"追加された共有ファイル: {relativePath}");
                     }
                 }
 
@@ -515,7 +527,7 @@ namespace Flashnote.Services
                 Debug.WriteLine($"共有ノートのダウンロード開始 - ユーザーID: {userId}, パス: {notePath}");
                 
                 // 一時フォルダのパス構築
-                var tempBasePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Flashnote");
+                var tempBasePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AnkiPlus");
                 string tempDir;
                 if (!string.IsNullOrEmpty(subFolder))
                 {
@@ -660,7 +672,7 @@ namespace Flashnote.Services
 
                 // .ankplsファイルを作成
                 Debug.WriteLine($".ankplsファイル作成開始");
-                var localBasePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Flashnote");
+                var localBasePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "AnkiPlus");
                 string ankplsPath;
                 if (!string.IsNullOrEmpty(subFolder))
                 {
@@ -772,38 +784,37 @@ namespace Flashnote.Services
                     var folderPrefix = $"{userId}/{folderPath}/";
                     Debug.WriteLine($"フォルダ内容を検索: {folderPrefix}");
 
-                    // フォルダ内のcards.txtファイルのみを効率的に検索
+                    // フォルダ内のcards.txtファイルを検索
                     await foreach (var blob in containerClient.GetBlobsAsync(prefix: folderPrefix))
                     {
-                        // cards.txtで終わらないファイルは早期にスキップ（効率化）
-                        if (!blob.Name.EndsWith("/cards.txt"))
-                            continue;
-
-                        Debug.WriteLine($"検出したcards.txt: {blob.Name}");
-                        // パスからノート名とサブフォルダを抽出
-                        var relativePath = blob.Name.Substring(folderPrefix.Length);
-                        var pathParts = relativePath.Split('/');
-                        
-                        if (pathParts.Length >= 2)
+                        Debug.WriteLine($"検出したブロブ: {blob.Name}");
+                        if (blob.Name.EndsWith("/cards.txt"))
                         {
-                            var noteName = pathParts[pathParts.Length - 2]; // cards.txtの親フォルダ
-                            var subFolderParts = pathParts.Take(pathParts.Length - 2);
-                            var innerSubFolder = subFolderParts.Any() ? string.Join("/", subFolderParts) : null;
+                            // パスからノート名とサブフォルダを抽出
+                            var relativePath = blob.Name.Substring(folderPrefix.Length);
+                            var pathParts = relativePath.Split('/');
                             
-                            // フォルダ共有の場合は、{共有フォルダ名}\{ノート名}_tempとして保存
-                            var targetSubFolder = folderPath;
-                            var fullNotePath = $"{folderPath}/{(innerSubFolder != null ? innerSubFolder + "/" : "")}{noteName}";
-                            
-                            Debug.WriteLine($"フォルダ内のノートを処理: {noteName}");
-                            Debug.WriteLine($"内部サブフォルダ: {innerSubFolder ?? "なし"}");
-                            Debug.WriteLine($"保存先サブフォルダ: {targetSubFolder}");
-                            Debug.WriteLine($"完全ノートパス: {fullNotePath}");
+                            if (pathParts.Length >= 2)
+                            {
+                                var noteName = pathParts[pathParts.Length - 2]; // cards.txtの親フォルダ
+                                var subFolderParts = pathParts.Take(pathParts.Length - 2);
+                                var innerSubFolder = subFolderParts.Any() ? string.Join("/", subFolderParts) : null;
+                                
+                                // フォルダ共有の場合は、{共有フォルダ名}\{ノート名}_tempとして保存
+                                var targetSubFolder = folderPath;
+                                var fullNotePath = $"{folderPath}/{(innerSubFolder != null ? innerSubFolder + "/" : "")}{noteName}";
+                                
+                                Debug.WriteLine($"フォルダ内のノートを処理: {noteName}");
+                                Debug.WriteLine($"内部サブフォルダ: {innerSubFolder ?? "なし"}");
+                                Debug.WriteLine($"保存先サブフォルダ: {targetSubFolder}");
+                                Debug.WriteLine($"完全ノートパス: {fullNotePath}");
 
-                            // ノートをダウンロード（保存先は{共有フォルダ名}\{ノート名}_tempとなる）
-                            await DownloadSharedNoteAsync(userId, fullNotePath, noteName, targetSubFolder);
-                            
-                            // ダウンロードしたノート情報を記録
-                            downloadedNotes.Add((noteName, targetSubFolder, fullNotePath));
+                                // ノートをダウンロード（保存先は{共有フォルダ名}\{ノート名}_tempとなる）
+                                await DownloadSharedNoteAsync(userId, fullNotePath, noteName, targetSubFolder);
+                                
+                                // ダウンロードしたノート情報を記録
+                                downloadedNotes.Add((noteName, targetSubFolder, fullNotePath));
+                            }
                         }
                     }
 
@@ -829,22 +840,7 @@ namespace Flashnote.Services
                 Debug.WriteLine($"共有ノートファイルの保存開始 - ユーザーID: {userId}, フォルダパス: {folderPath}, ファイル名: {fileName}");
                 
                 var containerClient = _blobServiceClient.GetBlobContainerClient(CONTAINER_NAME);
-                
-                // パス区切り文字を正規化
-                var normalizedFolderPath = folderPath.Replace("\\", "/");
-                
-                // 既にuserIdが含まれている場合は重複を避ける
-                string fullPath;
-                if (normalizedFolderPath.StartsWith($"{userId}/"))
-                {
-                    fullPath = $"{normalizedFolderPath}/{fileName}";
-                    Debug.WriteLine($"既にUserIDが含まれているため、重複を回避: {fullPath}");
-                }
-                else
-                {
-                    fullPath = $"{userId}/{normalizedFolderPath}/{fileName}";
-                }
-                
+                var fullPath = $"{userId}/{folderPath}/{fileName}";
                 var blobClient = containerClient.GetBlobClient(fullPath);
 
                 using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(content));

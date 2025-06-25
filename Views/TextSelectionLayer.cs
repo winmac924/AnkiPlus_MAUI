@@ -2,10 +2,8 @@ using Microsoft.Maui.Controls;
 using System.Diagnostics;
 using PdfiumViewer;
 using System.Reflection;
-using SkiaSharp;
-using SkiaSharp.Views.Maui;
 
-namespace Flashnote.Views
+namespace AnkiPlus_MAUI.Views
 {
     public class TextSelectionLayer : ContentView
     {

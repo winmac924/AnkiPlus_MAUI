@@ -1,7 +1,7 @@
-using Flashnote.Services;
+using AnkiPlus_MAUI.Services;
 using System.Diagnostics;
 
-namespace Flashnote
+namespace AnkiPlus_MAUI
 {
     public partial class SharedKeyImportPage : ContentPage
     {

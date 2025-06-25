@@ -3,7 +3,7 @@ using System.IO;
 using System.Threading.Tasks;
 using Microsoft.Maui.Dispatching;
 
-namespace Flashnote.Services
+namespace AnkiPlus_MAUI.Services
 {
     public class FileWatcherService : IDisposable
     {
@@ -20,7 +20,7 @@ namespace Flashnote.Services
 
         public FileWatcherService()
         {
-            _folderPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Flashnote");
+            _folderPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "AnkiPlus");
             // _dispatcher = Application.Current?.Dispatcher ?? throw new InvalidOperationException("Dispatcher not available");
             // Dispatcherの取得はイベント発火時に行う
             InitializeWatcher();

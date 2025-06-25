@@ -1,11 +1,11 @@
 ﻿using Microsoft.Extensions.Logging;
 using Plugin.Maui.KeyListener;
 using SkiaSharp.Views.Maui.Controls.Hosting;
-using Flashnote.Services;
-using Flashnote.ViewModels;
+using AnkiPlus_MAUI.Services;
+using AnkiPlus_MAUI.ViewModels;
 using System.Text;
 
-namespace Flashnote;
+namespace AnkiPlus_MAUI;
 
 public static class MauiProgram
 {
@@ -23,7 +23,6 @@ public static class MauiProgram
 			{
 				fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
 				fonts.AddFont("OpenSans-Semibold.ttf", "OpenSansRegular");
-				fonts.AddFont("FluentUI-Regular.ttf", "FluentUI");
 			});
 
 		// サービスの登録

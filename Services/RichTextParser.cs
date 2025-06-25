@@ -5,7 +5,7 @@ using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Microsoft.Maui.Storage;
 
-namespace Flashnote.Services
+namespace AnkiPlus_MAUI.Services
 {
     /// <summary>
     /// リッチテキスト（HTML/RTF）をMarkdown形式に変換するサービス

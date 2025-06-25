@@ -1,8 +1,8 @@
 ﻿<maui:MauiWinUIApplication
-    x:Class="Flashnote.WinUI.App"
+    x:Class="AnkiPlus_MAUI.WinUI.App"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:maui="using:Microsoft.Maui"
-    xmlns:local="using:Flashnote.WinUI">
+    xmlns:local="using:AnkiPlus_MAUI.WinUI">
 
 </maui:MauiWinUIApplication>

@@ -6,10 +6,10 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
-using Flashnote.Models;
+using AnkiPlus_MAUI.Models;
 using System.Text.RegularExpressions;
 
-namespace Flashnote.Services
+namespace AnkiPlus_MAUI.Services
 {
     public class AnkiExporter
     {

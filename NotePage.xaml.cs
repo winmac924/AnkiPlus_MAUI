@@ -1,20 +1,23 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
-using System.Linq;
-using System.Threading.Tasks;
+using SkiaSharp;
+using SkiaSharp.Views.Maui;
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Storage;
-using Flashnote.Views;
-using Flashnote.Drawing;
-using System.Text.Json;
-using System.Text.RegularExpressions;
+using SkiaSharp.Views.Maui.Controls;
 using System.Diagnostics;
-using Flashnote.Models;  // SentenceDataの名前空間を追加
-using SQLite;
-using Flashnote.Services;  // CardManagerの名前空間を追加
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using AnkiPlus_MAUI.Views;
+using AnkiPlus_MAUI.Drawing;
+using System.IO.Compression;
+using System.Text.Json;
+using System.Linq;
+using AnkiPlus_MAUI.Models;  // SentenceDataの名前空間を追加
+using System.Text.RegularExpressions;
+using AnkiPlus_MAUI.Services;  // CardManagerの名前空間を追加
 
-namespace Flashnote
+namespace AnkiPlus_MAUI
 {
     public partial class NotePage : ContentPage, IDisposable
     {
@@ -59,10 +62,10 @@ namespace Flashnote
             ankplsFilePath = noteName;
 
             // 一時ディレクトリのパスを設定
-            string relativePath = Path.GetRelativePath(Path.Combine(documentsPath, "Flashnote"), Path.GetDirectoryName(ankplsFilePath));
+            string relativePath = Path.GetRelativePath(Path.Combine(documentsPath, "AnkiPlus"), Path.GetDirectoryName(ankplsFilePath));
             tempExtractPath = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "Flashnote",
+                "AnkiPlus",
                 relativePath,
                 $"{_noteName}_temp"
             );
@@ -260,19 +263,22 @@ namespace Flashnote
             }
         }
 
-        private void OnPenToolClicked(object sender, EventArgs e)
+        private void OnPenClicked(object sender, EventArgs e)
         {
-            _drawingLayer?.SetTool(Flashnote.Drawing.DrawingTool.Pen);
+            _drawingLayer?.SetTool(AnkiPlus_MAUI.Drawing.DrawingTool.Pen);
+            Debug.WriteLine("ペンツールに切り替え");
         }
 
-        private void OnMarkerToolClicked(object sender, EventArgs e)
+        private void OnMarkerClicked(object sender, EventArgs e)
         {
-            _drawingLayer?.SetTool(Flashnote.Drawing.DrawingTool.Marker);
+            _drawingLayer?.SetTool(AnkiPlus_MAUI.Drawing.DrawingTool.Marker);
+            Debug.WriteLine("マーカーツールに切り替え");
         }
 
-        private void OnEraserToolClicked(object sender, EventArgs e)
+        private void OnEraserClicked(object sender, EventArgs e)
         {
-            _drawingLayer?.SetTool(Flashnote.Drawing.DrawingTool.Eraser);
+            _drawingLayer?.SetTool(AnkiPlus_MAUI.Drawing.DrawingTool.Eraser);
+            Debug.WriteLine("消しゴムツールに切り替え");
         }
 
         private void OnRulerClicked(object sender, EventArgs e)

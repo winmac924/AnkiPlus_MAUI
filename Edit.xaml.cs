@@ -7,7 +7,7 @@ using SkiaSharp.Views.Maui;
 using System.Web;
 using System.Reflection;
 
-namespace Flashnote
+namespace AnkiPlus_MAUI
 {
     public partial class Edit : ContentPage
     {
@@ -24,7 +24,11 @@ namespace Flashnote
         private bool isDragging = false;
         private const float HANDLE_SIZE = 15;
 
-
+        // WebView初期化フラグ
+        private bool _frontPreviewInitialized = false;
+        private bool _backPreviewInitialized = false;
+        private bool _choicePreviewInitialized = false;
+        private bool _choiceExplanationPreviewInitialized = false;
 
         public class CardInfo
         {
@@ -177,22 +181,13 @@ namespace Flashnote
             _frontPreviewTimer?.Stop();
             _frontPreviewTimer?.Dispose();
             
-            // 新しいタイマーを作成（300ms後に実行）
-            _frontPreviewTimer = new System.Timers.Timer(300);
+            // 新しいタイマーを作成（500ms後に実行）
+            _frontPreviewTimer = new System.Timers.Timer(500);
             _frontPreviewTimer.Elapsed += (s, e) =>
             {
-                MainThread.BeginInvokeOnMainThread(() =>
+                Device.BeginInvokeOnMainThread(async () =>
                 {
-                    try
-                    {
-                        FrontPreviewLabel.RichText = text;
-                        FrontPreviewLabel.ShowAnswer = false;
-                        FrontPreviewLabel.ImageFolderPath = tempExtractPath;
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.WriteLine($"表面プレビュー更新エラー: {ex.Message}");
-                    }
+                    await UpdateFrontPreviewAsync(text);
                 });
                 _frontPreviewTimer?.Stop();
                 _frontPreviewTimer?.Dispose();
@@ -212,22 +207,13 @@ namespace Flashnote
             _backPreviewTimer?.Stop();
             _backPreviewTimer?.Dispose();
             
-            // 新しいタイマーを作成（300ms後に実行）
-            _backPreviewTimer = new System.Timers.Timer(300);
+            // 新しいタイマーを作成（500ms後に実行）
+            _backPreviewTimer = new System.Timers.Timer(500);
             _backPreviewTimer.Elapsed += (s, e) =>
             {
-                MainThread.BeginInvokeOnMainThread(() =>
+                Device.BeginInvokeOnMainThread(async () =>
                 {
-                    try
-                    {
-                        BackPreviewLabel.RichText = text;
-                        BackPreviewLabel.ShowAnswer = false;
-                        BackPreviewLabel.ImageFolderPath = tempExtractPath;
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.WriteLine($"裏面プレビュー更新エラー: {ex.Message}");
-                    }
+                    await UpdateBackPreviewAsync(text);
                 });
                 _backPreviewTimer?.Stop();
                 _backPreviewTimer?.Dispose();
@@ -237,7 +223,131 @@ namespace Flashnote
             _backPreviewTimer.Start();
         }
 
+        /// <summary>
+        /// 表面プレビューを更新（JavaScript手法）
+        /// </summary>
+        private async Task UpdateFrontPreviewAsync(string text)
+        {
+            try
+            {
+                if (!_frontPreviewInitialized)
+                {
+                    var baseHtml = CreateBaseHtmlTemplate();
+                    FrontPreviewWebView.Source = new HtmlWebViewSource { Html = baseHtml };
+                    _frontPreviewInitialized = true;
+                    
+                    // WebViewの読み込み完了を待つ
+                    var tcs = new TaskCompletionSource<bool>();
+                    
+                    void OnNavigated(object sender, WebNavigatedEventArgs e)
+                    {
+                        FrontPreviewWebView.Navigated -= OnNavigated;
+                        tcs.SetResult(true);
+                    }
+                    
+                    FrontPreviewWebView.Navigated += OnNavigated;
+                    
+                    // タイムアウト設定
+                    Device.StartTimer(TimeSpan.FromSeconds(3), () =>
+                    {
+                        if (!tcs.Task.IsCompleted)
+                        {
+                            FrontPreviewWebView.Navigated -= OnNavigated;
+                            tcs.SetResult(false);
+                        }
+                        return false;
+                    });
+                    
+                    await tcs.Task;
+                    
+                    // WebViewの完全初期化を待つ
+                    await Task.Delay(200);
+                    await UpdateWebViewContent(FrontPreviewWebView, text ?? "", false);
+                }
+                else
+                {
+                    // 2回目以降はコンテンツ部分のみ更新
+                    await UpdateWebViewContent(FrontPreviewWebView, text ?? "", false);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"表面プレビュー更新エラー: {ex.Message}");
+                // フォールバック：従来の方法で更新
+                try
+                {
+                    var fallbackHtml = ConvertMarkdownToHtml(text ?? "");
+                    FrontPreviewWebView.Source = new HtmlWebViewSource { Html = fallbackHtml };
+                }
+                catch (Exception fallbackEx)
+                {
+                    Debug.WriteLine($"フォールバック更新エラー: {fallbackEx.Message}");
+                }
+            }
+        }
 
+        /// <summary>
+        /// 裏面プレビューを更新（JavaScript手法）
+        /// </summary>
+        private async Task UpdateBackPreviewAsync(string text)
+        {
+            try
+            {
+                if (!_backPreviewInitialized)
+                {
+                    var baseHtml = CreateBaseHtmlTemplate();
+                    BackPreviewWebView.Source = new HtmlWebViewSource { Html = baseHtml };
+                    _backPreviewInitialized = true;
+                    
+                    // WebViewの読み込み完了を待つ
+                    var tcs = new TaskCompletionSource<bool>();
+                    
+                    void OnNavigated(object sender, WebNavigatedEventArgs e)
+                    {
+                        BackPreviewWebView.Navigated -= OnNavigated;
+                        tcs.SetResult(true);
+                    }
+                    
+                    BackPreviewWebView.Navigated += OnNavigated;
+                    
+                    // タイムアウト設定
+                    Device.StartTimer(TimeSpan.FromSeconds(3), () =>
+                    {
+                        if (!tcs.Task.IsCompleted)
+                        {
+                            BackPreviewWebView.Navigated -= OnNavigated;
+                            tcs.SetResult(false);
+                        }
+                        return false;
+                    });
+                    
+                    await tcs.Task;
+                    
+                    // WebViewの完全初期化を待つ
+                    await Task.Delay(200);
+                    await UpdateWebViewContent(BackPreviewWebView, text ?? "", false);
+                }
+                else
+                {
+                    // 2回目以降はコンテンツ部分のみ更新
+                    await UpdateWebViewContent(BackPreviewWebView, text ?? "", false);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"裏面プレビュー更新エラー: {ex.Message}");
+                // フォールバック：従来の方法で更新
+                try
+                {
+                    var fallbackHtml = ConvertMarkdownToHtml(text ?? "");
+                    BackPreviewWebView.Source = new HtmlWebViewSource { Html = fallbackHtml };
+                }
+                catch (Exception fallbackEx)
+                {
+                    Debug.WriteLine($"フォールバック更新エラー: {fallbackEx.Message}");
+                }
+            }
+        }
 
         private string ConvertMarkdownToHtml(string text)
         {
@@ -1063,23 +1173,13 @@ namespace Flashnote
                 {
                     case "基本・穴埋め":
                         Debug.WriteLine("基本カードのプレビューを更新");
-                        FrontPreviewLabel.RichText = FrontTextEditor.Text ?? "";
-                        FrontPreviewLabel.ShowAnswer = false;
-                        FrontPreviewLabel.ImageFolderPath = tempExtractPath;
-                        
-                        BackPreviewLabel.RichText = BackTextEditor.Text ?? "";
-                        BackPreviewLabel.ShowAnswer = false;
-                        BackPreviewLabel.ImageFolderPath = tempExtractPath;
+                        await UpdateFrontPreviewAsync(FrontTextEditor.Text ?? "");
+                        await UpdateBackPreviewAsync(BackTextEditor.Text ?? "");
                         break;
                     case "選択肢":
                         Debug.WriteLine("選択肢カードのプレビューを更新");
-                        ChoicePreviewLabel.RichText = ChoiceQuestion.Text ?? "";
-                        ChoicePreviewLabel.ShowAnswer = false;
-                        ChoicePreviewLabel.ImageFolderPath = tempExtractPath;
-                        
-                        ChoiceExplanationPreviewLabel.RichText = ChoiceQuestionExplanation.Text ?? "";
-                        ChoiceExplanationPreviewLabel.ShowAnswer = false;
-                        ChoiceExplanationPreviewLabel.ImageFolderPath = tempExtractPath;
+                        await UpdateChoiceQuestionPreviewAsync(ChoiceQuestion.Text ?? "");
+                        await UpdateChoiceExplanationPreviewAsync(ChoiceQuestionExplanation.Text ?? "");
                         break;
                 }
             }
@@ -1158,7 +1258,9 @@ namespace Flashnote
                         ChoiceQuestionExplanation.TextChanged -= OnChoiceExplanationTextChanged;
                         ChoiceQuestionExplanation.TextChanged += OnChoiceExplanationTextChanged;
                         
-
+                        // プレビューをJavaScript手法で初期化（初期化フラグをリセット）
+                        _choicePreviewInitialized = false;
+                        _choiceExplanationPreviewInitialized = false;
                         
                         Debug.WriteLine($"選択肢カードのプレビュー初期化: question='{cardData.question}', explanation='{cardData.explanation}'");
                         
@@ -1195,7 +1297,9 @@ namespace Flashnote
                         FrontTextEditor.Text = cardData.front ?? "";
                         BackTextEditor.Text = cardData.back ?? "";
                         
-
+                        // プレビューをJavaScript手法で初期化（初期化フラグをリセット）
+                        _frontPreviewInitialized = false;
+                        _backPreviewInitialized = false;
                         
                         Debug.WriteLine($"基本カードのプレビュー初期化: front='{cardData.front}', back='{cardData.back}'");
                     }
@@ -1592,22 +1696,13 @@ namespace Flashnote
             _choiceQuestionPreviewTimer?.Stop();
             _choiceQuestionPreviewTimer?.Dispose();
             
-            // 新しいタイマーを作成（300ms後に実行）
-            _choiceQuestionPreviewTimer = new System.Timers.Timer(300);
+            // 新しいタイマーを作成（500ms後に実行）
+            _choiceQuestionPreviewTimer = new System.Timers.Timer(500);
             _choiceQuestionPreviewTimer.Elapsed += (s, e) =>
             {
-                MainThread.BeginInvokeOnMainThread(() =>
+                Device.BeginInvokeOnMainThread(async () =>
                 {
-                    try
-                    {
-                        ChoicePreviewLabel.RichText = text;
-                        ChoicePreviewLabel.ShowAnswer = false;
-                        ChoicePreviewLabel.ImageFolderPath = tempExtractPath;
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.WriteLine($"選択肢問題プレビュー更新エラー: {ex.Message}");
-                    }
+                    await UpdateChoiceQuestionPreviewAsync(text);
                 });
                 _choiceQuestionPreviewTimer?.Stop();
                 _choiceQuestionPreviewTimer?.Dispose();
@@ -1627,22 +1722,13 @@ namespace Flashnote
             _choiceExplanationPreviewTimer?.Stop();
             _choiceExplanationPreviewTimer?.Dispose();
             
-            // 新しいタイマーを作成（300ms後に実行）
-            _choiceExplanationPreviewTimer = new System.Timers.Timer(300);
+            // 新しいタイマーを作成（500ms後に実行）
+            _choiceExplanationPreviewTimer = new System.Timers.Timer(500);
             _choiceExplanationPreviewTimer.Elapsed += (s, e) =>
             {
-                MainThread.BeginInvokeOnMainThread(() =>
+                Device.BeginInvokeOnMainThread(async () =>
                 {
-                    try
-                    {
-                        ChoiceExplanationPreviewLabel.RichText = text;
-                        ChoiceExplanationPreviewLabel.ShowAnswer = false;
-                        ChoiceExplanationPreviewLabel.ImageFolderPath = tempExtractPath;
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.WriteLine($"選択肢解説プレビュー更新エラー: {ex.Message}");
-                    }
+                    await UpdateChoiceExplanationPreviewAsync(text);
                 });
                 _choiceExplanationPreviewTimer?.Stop();
                 _choiceExplanationPreviewTimer?.Dispose();
@@ -1652,7 +1738,131 @@ namespace Flashnote
             _choiceExplanationPreviewTimer.Start();
         }
 
+        /// <summary>
+        /// 選択肢問題プレビューを更新（JavaScript手法）
+        /// </summary>
+        private async Task UpdateChoiceQuestionPreviewAsync(string text)
+        {
+            try
+            {
+                if (!_choicePreviewInitialized)
+                {
+                    var baseHtml = CreateBaseHtmlTemplate();
+                    ChoicePreviewWebView.Source = new HtmlWebViewSource { Html = baseHtml };
+                    _choicePreviewInitialized = true;
+                    
+                    // WebViewの読み込み完了を待つ
+                    var tcs = new TaskCompletionSource<bool>();
+                    
+                    void OnNavigated(object sender, WebNavigatedEventArgs e)
+                    {
+                        ChoicePreviewWebView.Navigated -= OnNavigated;
+                        tcs.SetResult(true);
+                    }
+                    
+                    ChoicePreviewWebView.Navigated += OnNavigated;
+                    
+                    // タイムアウト設定
+                    Device.StartTimer(TimeSpan.FromSeconds(3), () =>
+                    {
+                        if (!tcs.Task.IsCompleted)
+                        {
+                            ChoicePreviewWebView.Navigated -= OnNavigated;
+                            tcs.SetResult(false);
+                        }
+                        return false;
+                    });
+                    
+                    await tcs.Task;
+                    
+                    // WebViewの完全初期化を待つ
+                    await Task.Delay(200);
+                    await UpdateWebViewContent(ChoicePreviewWebView, text ?? "", false);
+                }
+                else
+                {
+                    // 2回目以降はコンテンツ部分のみ更新
+                    await UpdateWebViewContent(ChoicePreviewWebView, text ?? "", false);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"選択肢問題プレビュー更新エラー: {ex.Message}");
+                // フォールバック：従来の方法で更新
+                try
+                {
+                    var fallbackHtml = ConvertMarkdownToHtml(text ?? "");
+                    ChoicePreviewWebView.Source = new HtmlWebViewSource { Html = fallbackHtml };
+                }
+                catch (Exception fallbackEx)
+                {
+                    Debug.WriteLine($"フォールバック更新エラー: {fallbackEx.Message}");
+                }
+            }
+        }
 
+        /// <summary>
+        /// 選択肢解説プレビューを更新（JavaScript手法）
+        /// </summary>
+        private async Task UpdateChoiceExplanationPreviewAsync(string text)
+        {
+            try
+            {
+                if (!_choiceExplanationPreviewInitialized)
+                {
+                    var baseHtml = CreateBaseHtmlTemplate();
+                    ChoiceExplanationPreviewWebView.Source = new HtmlWebViewSource { Html = baseHtml };
+                    _choiceExplanationPreviewInitialized = true;
+                    
+                    // WebViewの読み込み完了を待つ
+                    var tcs = new TaskCompletionSource<bool>();
+                    
+                    void OnNavigated(object sender, WebNavigatedEventArgs e)
+                    {
+                        ChoiceExplanationPreviewWebView.Navigated -= OnNavigated;
+                        tcs.SetResult(true);
+                    }
+                    
+                    ChoiceExplanationPreviewWebView.Navigated += OnNavigated;
+                    
+                    // タイムアウト設定
+                    Device.StartTimer(TimeSpan.FromSeconds(3), () =>
+                    {
+                        if (!tcs.Task.IsCompleted)
+                        {
+                            ChoiceExplanationPreviewWebView.Navigated -= OnNavigated;
+                            tcs.SetResult(false);
+                        }
+                        return false;
+                    });
+                    
+                    await tcs.Task;
+                    
+                    // WebViewの完全初期化を待つ
+                    await Task.Delay(200);
+                    await UpdateWebViewContent(ChoiceExplanationPreviewWebView, text ?? "", false);
+                }
+                else
+                {
+                    // 2回目以降はコンテンツ部分のみ更新
+                    await UpdateWebViewContent(ChoiceExplanationPreviewWebView, text ?? "", false);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"選択肢解説プレビュー更新エラー: {ex.Message}");
+                // フォールバック：従来の方法で更新
+                try
+                {
+                    var fallbackHtml = ConvertMarkdownToHtml(text ?? "");
+                    ChoiceExplanationPreviewWebView.Source = new HtmlWebViewSource { Html = fallbackHtml };
+                }
+                catch (Exception fallbackEx)
+                {
+                    Debug.WriteLine($"フォールバック更新エラー: {fallbackEx.Message}");
+                }
+            }
+        }
 
         private void OnSearchTextChanged(object sender, TextChangedEventArgs e)
         {

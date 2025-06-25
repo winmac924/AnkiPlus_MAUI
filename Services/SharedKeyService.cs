@@ -3,7 +3,7 @@ using System.Diagnostics;
 using System.Threading.Tasks;
 using System.Linq;
 
-namespace Flashnote.Services
+namespace AnkiPlus_MAUI.Services
 {
     public class SharedKeyInfo
     {
@@ -22,15 +22,15 @@ namespace Flashnote.Services
         public SharedKeyService()
         {
             var appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            var flashnotePath = Path.Combine(appDataPath, "Flashnote");
+            var ankiPlusPath = Path.Combine(appDataPath, "AnkiPlus");
             
             // フォルダが存在しない場合は作成
-            if (!Directory.Exists(flashnotePath))
+            if (!Directory.Exists(ankiPlusPath))
             {
-                Directory.CreateDirectory(flashnotePath);
+                Directory.CreateDirectory(ankiPlusPath);
             }
 
-            _sharedKeysFilePath = Path.Combine(flashnotePath, "share_keys.json");
+            _sharedKeysFilePath = Path.Combine(ankiPlusPath, "share_keys.json");
             _sharedNotes = new Dictionary<string, SharedKeyInfo>();
             _blobStorageService = new BlobStorageService();
             LoadSharedKeys();

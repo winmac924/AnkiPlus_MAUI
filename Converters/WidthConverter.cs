@@ -1,6 +1,6 @@
 ﻿using System.Globalization;
 
-namespace Flashnote.Converters
+namespace AnkiPlus_MAUI.Converters
 {
     public class WidthConverter : IValueConverter
     {

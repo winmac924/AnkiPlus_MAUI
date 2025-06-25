@@ -1,4 +1,4 @@
-﻿namespace Flashnote
+﻿namespace AnkiPlus_MAUI
 {
     public partial class AppShell : Shell
     {
