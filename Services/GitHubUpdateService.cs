@@ -1,7 +1,7 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 
-namespace AnkiPlus_MAUI.Services;
+namespace Flashnote.Services;
 
 public class GitHubUpdateService
 {
@@ -10,7 +10,7 @@ public class GitHubUpdateService
     
     // GitHubリポジトリの設定（実際の値に変更してください）
     private const string GITHUB_OWNER = "winmac924"; // GitHubユーザー名
-    private const string GITHUB_REPO = "AnkiPlus_MAUI"; // リポジトリ名
+    private const string GITHUB_REPO = "Flashnote_MAUI"; // リポジトリ名
     private const string GITHUB_API_BASE = "https://api.github.com";
 
     public GitHubUpdateService(HttpClient httpClient, ILogger<GitHubUpdateService> logger)
@@ -19,7 +19,7 @@ public class GitHubUpdateService
         _logger = logger;
         
         // GitHub API用のUser-Agentヘッダーを設定（必須）
-        _httpClient.DefaultRequestHeaders.Add("User-Agent", "AnkiPlus-MAUI-UpdateClient");
+        _httpClient.DefaultRequestHeaders.Add("User-Agent", "Flashnote-MAUI-UpdateClient");
     }
 
     public async Task<UpdateInfo?> CheckForUpdatesAsync()
@@ -331,13 +331,11 @@ public class GitHubUpdateService
             var backupPath = currentExePath + ".backup";
             
             // アップデート用バッチファイルを作成（英語メッセージでエンコーディング問題を回避）
-            var batchPath = Path.Combine(Path.GetTempPath(), "AnkiPlus_Update.bat");
+            var batchPath = Path.Combine(Path.GetTempPath(), "Flashnote_Update.bat");
             var batchContent = $@"@echo off
-title AnkiPlus MAUI Update
+title Flashnote Update
 echo.
-echo ==========================================
-echo   AnkiPlus MAUI Update in Progress...
-echo ==========================================
+echo   Flashnote Update in Progress...
 echo.
 
 REM Wait for application to completely exit
@@ -453,7 +451,7 @@ del ""%~f0""
     {
         try
         {
-            var extractPath = Path.Combine(Path.GetTempPath(), "AnkiPlus_Update");
+            var extractPath = Path.Combine(Path.GetTempPath(), "Flashnote_Update");
             if (Directory.Exists(extractPath))
                 Directory.Delete(extractPath, true);
                 

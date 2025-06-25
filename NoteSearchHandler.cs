@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace AnkiPlus_MAUI
+namespace Flashnote
 {
     public class NoteSearchHandler : SearchHandler
     {

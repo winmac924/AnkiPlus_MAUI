@@ -1,6 +1,6 @@
 using Microsoft.Maui.Controls;
 
-namespace AnkiPlus_MAUI.Behaviors
+namespace Flashnote.Behaviors
 {
     public class FadeInBehavior : Behavior<Image>
     {

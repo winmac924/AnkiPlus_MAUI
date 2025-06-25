@@ -1,7 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json;
 
-namespace AnkiPlus_MAUI.Models
+namespace Flashnote.Models
 {
     public class CardData
     {

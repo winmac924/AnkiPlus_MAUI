@@ -10,8 +10,12 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Linq;
+using System.Text.Json;
+using System.IO;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 
-namespace AnkiPlus_MAUI.Views
+namespace Flashnote.Views
 {
     /// <summary>
     /// PDF/画像表示専用のバックグラウンドキャンバス

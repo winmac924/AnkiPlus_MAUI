@@ -1,6 +1,6 @@
 using Microsoft.Maui.Controls;
 
-namespace AnkiPlus_MAUI
+namespace Flashnote
 {
     public partial class DropdownMenu : ContentView
     {

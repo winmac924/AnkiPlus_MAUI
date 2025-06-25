@@ -1,7 +1,7 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 
-namespace AnkiPlus_MAUI.Services;
+namespace Flashnote.Services;
 
 public class ConfigurationService
 {

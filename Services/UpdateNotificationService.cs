@@ -1,6 +1,5 @@
 using Microsoft.Extensions.Logging;
-
-namespace AnkiPlus_MAUI.Services;
+namespace Flashnote.Services;
 
 public class UpdateNotificationService
 {
@@ -140,7 +139,7 @@ public class UpdateNotificationService
         try
         {
             var title = "🚀 新しいバージョンが利用可能です";
-            var message = $"AnkiPlus MAUI {updateInfo.LatestVersion} がリリースされました。\n\n" +
+            var message = $"Flashnote {updateInfo.LatestVersion} がリリースされました。\n\n" +
                          $"📋 更新内容:\n{updateInfo.ReleaseNotes}\n\n" +
                          $"今すぐダウンロードしますか？";
 
@@ -248,7 +247,7 @@ public class UpdateNotificationService
             {
                 errorPage.ShowError(
                     "アップデート中にエラーが発生しました",
-                    $"手動でアップデートしてください：\n1. https://github.com/winmac924/AnkiPlus_MAUI/releases\n2. 最新の .exe ファイルをダウンロード\n3. 現在のファイルを置き換え\n\nエラー詳細: {ex.Message}"
+                    $"手動でアップデートしてください：\n1. https://github.com/winmac924/Flashnote_MAUI/releases\n2. 最新の .exe ファイルをダウンロード\n3. 現在のファイルを置き換え\n\nエラー詳細: {ex.Message}"
                 );
                 
                 await Task.Delay(3000);
@@ -259,7 +258,7 @@ public class UpdateNotificationService
                 // 進捗ページが表示されていない場合は従来の方法でエラーを表示
                 await Application.Current.MainPage.DisplayAlert(
                     "❌ アップデートエラー",
-                    $"アップデート中にエラーが発生しました。\n\n手動でアップデートしてください：\n1. https://github.com/winmac924/AnkiPlus_MAUI/releases\n2. 最新の .exe ファイルをダウンロード\n3. 現在のファイルを置き換え\n\nエラー詳細: {ex.Message}",
+                    $"アップデート中にエラーが発生しました。\n\n手動でアップデートしてください：\n1. https://github.com/winmac924/Flashnote_MAUI/releases\n2. 最新の .exe ファイルをダウンロード\n3. 現在のファイルを置き換え\n\nエラー詳細: {ex.Message}",
                     "OK"
                 );
             }

@@ -1,6 +1,7 @@
+using Microsoft.Extensions.Logging;
 using System.Diagnostics;
 
-namespace AnkiPlus_MAUI.Services
+namespace Flashnote.Services
 {
     public class LearningResultSyncService
     {
@@ -137,7 +138,7 @@ namespace AnkiPlus_MAUI.Services
         private string GetLocalResultPath(string noteName, string subFolder = null)
         {
             var documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-            var basePath = Path.Combine(documentsPath, "AnkiPlus");
+            var basePath = Path.Combine(documentsPath, "Flashnote");
             
             if (!string.IsNullOrEmpty(subFolder))
             {

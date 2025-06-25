@@ -4,21 +4,22 @@ using System.IO.Compression;
 using Microsoft.Maui.Devices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using AnkiPlus_MAUI.Models;
-using AnkiPlus_MAUI.Services;
+using Flashnote.Services;
 using Microsoft.Maui.Storage;
 using System;
 using System.IO;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Flashnote.Models;
 
 #if WINDOWS
 using Windows.Storage.Pickers;
+using Windows.Storage;
 using Microsoft.UI.Xaml;
 using WinRT.Interop;
 #endif
 
-namespace AnkiPlus_MAUI
+namespace Flashnote
 {
     public partial class Confirmation : ContentPage
     {
@@ -34,10 +35,10 @@ namespace AnkiPlus_MAUI
             ankplsFilePath = note;
 
             // フォルダ構造を維持した一時ディレクトリのパスを生成  
-            string relativePath = Path.GetRelativePath(Path.Combine(documentsPath, "AnkiPlus"), Path.GetDirectoryName(ankplsFilePath));
+            string relativePath = Path.GetRelativePath(Path.Combine(documentsPath, "Flashnote"), Path.GetDirectoryName(ankplsFilePath));
             tempExtractPath = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "AnkiPlus",
+                "Flashnote",
                 relativePath,
                 $"{Path.GetFileNameWithoutExtension(ankplsFilePath)}_temp"
             );
@@ -275,31 +276,6 @@ namespace AnkiPlus_MAUI
             }
         }
 #endif
-
-        private class CardData
-        {
-            public string type { get; set; }
-            public string front { get; set; }
-            public string back { get; set; }
-            public string question { get; set; }
-            public string explanation { get; set; }
-            public List<ChoiceData> choices { get; set; }
-            public List<SelectionRect> selectionRects { get; set; }
-        }
-
-        private class ChoiceData
-        {
-            public bool isCorrect { get; set; }
-            public string text { get; set; }
-        }
-
-        private class SelectionRect
-        {
-            public float x { get; set; }
-            public float y { get; set; }
-            public float width { get; set; }
-            public float height { get; set; }
-        }
     }
 }
 

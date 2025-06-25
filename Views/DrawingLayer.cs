@@ -4,11 +4,13 @@ using SkiaSharp.Views.Maui;
 using SkiaSharp.Views.Maui.Controls;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
-using AnkiPlus_MAUI.Drawing;
+using Flashnote.Drawing;
 using System.IO;
 using System.Text.Json;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 
-namespace AnkiPlus_MAUI.Views
+namespace Flashnote.Views
 {
     /// <summary>
     /// 描画専用の透明レイヤー
@@ -31,7 +33,7 @@ namespace AnkiPlus_MAUI.Views
         private SKPaint _eraserPaint;
         private SKPaint _currentPaint;
         private SKPath _currentPath;
-        private AnkiPlus_MAUI.Drawing.DrawingTool _currentTool = AnkiPlus_MAUI.Drawing.DrawingTool.Pen;
+        private DrawingTool _currentTool = DrawingTool.Pen;
 
         // 描画要素の管理
         private readonly ObservableCollection<DrawingStroke> _drawingElements;
@@ -291,14 +293,14 @@ namespace AnkiPlus_MAUI.Views
             _currentPaint = _penPaint;
         }
 
-        public void SetTool(AnkiPlus_MAUI.Drawing.DrawingTool tool)
+        public void SetTool(DrawingTool tool)
         {
             _currentTool = tool;
             _currentPaint = tool switch
             {
-                AnkiPlus_MAUI.Drawing.DrawingTool.Pen => _penPaint,
-                AnkiPlus_MAUI.Drawing.DrawingTool.Marker => _markerPaint,
-                AnkiPlus_MAUI.Drawing.DrawingTool.Eraser => _eraserPaint,
+                DrawingTool.Pen => _penPaint,
+                DrawingTool.Marker => _markerPaint,
+                DrawingTool.Eraser => _eraserPaint,
                 _ => _penPaint
             };
             Debug.WriteLine($"ツール変更: {tool}");
@@ -308,7 +310,7 @@ namespace AnkiPlus_MAUI.Views
         {
             _penColor = color;
             _penPaint.Color = color;
-            if (_currentTool == AnkiPlus_MAUI.Drawing.DrawingTool.Pen)
+            if (_currentTool == DrawingTool.Pen)
             {
                 _currentPaint = _penPaint;
             }
@@ -318,7 +320,7 @@ namespace AnkiPlus_MAUI.Views
         {
             _penStrokeWidth = width;
             _penPaint.StrokeWidth = width;
-            if (_currentTool == AnkiPlus_MAUI.Drawing.DrawingTool.Pen)
+            if (_currentTool == DrawingTool.Pen)
             {
                 _currentPaint = _penPaint;
             }
@@ -328,7 +330,7 @@ namespace AnkiPlus_MAUI.Views
         {
             _markerColor = color;
             _markerPaint.Color = color;
-            if (_currentTool == AnkiPlus_MAUI.Drawing.DrawingTool.Marker)
+            if (_currentTool == DrawingTool.Marker)
             {
                 _currentPaint = _markerPaint;
             }
@@ -338,7 +340,7 @@ namespace AnkiPlus_MAUI.Views
         {
             _markerStrokeWidth = width;
             _markerPaint.StrokeWidth = width;
-            if (_currentTool == AnkiPlus_MAUI.Drawing.DrawingTool.Marker)
+            if (_currentTool == DrawingTool.Marker)
             {
                 _currentPaint = _markerPaint;
             }
@@ -626,12 +628,12 @@ namespace AnkiPlus_MAUI.Views
                 var selectedColor = colors[colorIndex];
                 var colorName = colorNames[colorIndex];
                 
-                if (_currentTool == AnkiPlus_MAUI.Drawing.DrawingTool.Pen)
+                if (_currentTool == DrawingTool.Pen)
                 {
                     SetPenColor(selectedColor);
                     Debug.WriteLine($"ペンの色を{colorName}に変更しました");
                 }
-                else if (_currentTool == AnkiPlus_MAUI.Drawing.DrawingTool.Marker)
+                else if (_currentTool == DrawingTool.Marker)
                 {
                     SetMarkerColor(selectedColor.WithAlpha(128));
                     Debug.WriteLine($"マーカーの色を{colorName}に変更しました");
@@ -646,7 +648,7 @@ namespace AnkiPlus_MAUI.Views
 
         private void HandleStrokeWidthSelection(SKPoint adjustedLocation) // location は変換後座標
         {
-            var widthDict = _currentTool == AnkiPlus_MAUI.Drawing.DrawingTool.Marker ? _markerWidths : _strokeWidths;
+            var widthDict = _currentTool == DrawingTool.Marker ? _markerWidths : _strokeWidths;
             var widths = widthDict.Values.ToArray();
             var widthNames = widthDict.Keys.ToArray();
             var widthIndex = GetStrokeWidthBoxIndex(adjustedLocation); // 変換後座標を渡す
@@ -658,12 +660,12 @@ namespace AnkiPlus_MAUI.Views
                 var selectedWidth = widths[widthIndex];
                 var widthName = widthNames[widthIndex];
                 
-                if (_currentTool == AnkiPlus_MAUI.Drawing.DrawingTool.Pen)
+                if (_currentTool == DrawingTool.Pen)
                 {
                     SetPenStrokeWidth(selectedWidth);
                     Debug.WriteLine($"ペンの太さを{widthName}({selectedWidth})に変更しました");
                 }
-                else if (_currentTool == AnkiPlus_MAUI.Drawing.DrawingTool.Marker)
+                else if (_currentTool == DrawingTool.Marker)
                 {
                     SetMarkerStrokeWidth(selectedWidth);
                     Debug.WriteLine($"マーカーの太さを{widthName}({selectedWidth})に変更しました");
@@ -735,7 +737,7 @@ namespace AnkiPlus_MAUI.Views
             var startX = _lastRightClickPoint.X + 10;
             var y = _lastRightClickPoint.Y + 5 + COLOR_BOX_SIZE + 10; // 色ボックスの下に配置
             
-            var widths = _currentTool == AnkiPlus_MAUI.Drawing.DrawingTool.Marker ? _markerWidths : _strokeWidths;
+            var widths = _currentTool == DrawingTool.Marker ? _markerWidths : _strokeWidths;
             for (int i = 0; i < widths.Count; i++)
             {
                 var boxRect = new SKRect(startX + i * (STROKE_WIDTH_BOX_SIZE + 5), y,
@@ -1011,7 +1013,7 @@ namespace AnkiPlus_MAUI.Views
             // _lastRightClickPoint はUI座標（コンテキストメニューはUI要素なので変換不要）
             var startX = _lastRightClickPoint.X + 10;
             var y = _lastRightClickPoint.Y + 5 + COLOR_BOX_SIZE + 10; // 色ボックスの下に配置
-            var widths = (_currentTool == AnkiPlus_MAUI.Drawing.DrawingTool.Marker ? _markerWidths : _strokeWidths).Values.ToArray();
+            var widths = (_currentTool == DrawingTool.Marker ? _markerWidths : _strokeWidths).Values.ToArray();
 
             for (int i = 0; i < widths.Length; i++)
             {
@@ -1236,7 +1238,7 @@ namespace AnkiPlus_MAUI.Views
                     StrokeWidth = strokeData.StrokeWidth,
                     Style = strokeData.Style,
                     IsAntialias = true,
-                    BlendMode = strokeData.Tool == AnkiPlus_MAUI.Drawing.DrawingTool.Marker ? SKBlendMode.SrcOver : SKBlendMode.Src
+                    BlendMode = strokeData.Tool == DrawingTool.Marker ? SKBlendMode.SrcOver : SKBlendMode.Src
                 };
 
                 var stroke = new DrawingStroke(path, paint);
@@ -1281,7 +1283,7 @@ namespace AnkiPlus_MAUI.Views
                     StrokeWidth = strokeData.StrokeWidth,
                     Style = strokeData.Style,
                     IsAntialias = true,
-                    BlendMode = strokeData.Tool == AnkiPlus_MAUI.Drawing.DrawingTool.Marker ? SKBlendMode.SrcOver : SKBlendMode.Src
+                    BlendMode = strokeData.Tool == DrawingTool.Marker ? SKBlendMode.SrcOver : SKBlendMode.Src
                 };
 
                 var stroke = new DrawingStroke(path, paint);
@@ -1359,14 +1361,14 @@ namespace AnkiPlus_MAUI.Views
             return points;
         }
 
-        private AnkiPlus_MAUI.Drawing.DrawingTool GetToolFromPaint(SKPaint paint)
+        private DrawingTool GetToolFromPaint(SKPaint paint)
         {
             if (paint.BlendMode == SKBlendMode.Clear)
-                return AnkiPlus_MAUI.Drawing.DrawingTool.Eraser;
+                return DrawingTool.Eraser;
             else if (paint.BlendMode == SKBlendMode.SrcOver)
-                return AnkiPlus_MAUI.Drawing.DrawingTool.Marker;
+                return DrawingTool.Marker;
             else
-                return AnkiPlus_MAUI.Drawing.DrawingTool.Pen;
+                return DrawingTool.Pen;
         }
 
         public void Dispose()
@@ -1398,7 +1400,7 @@ namespace AnkiPlus_MAUI.Views
         /// <summary>
         /// 現在の描画ツールを取得
         /// </summary>
-        public AnkiPlus_MAUI.Drawing.DrawingTool CurrentTool => _currentTool;
+        public DrawingTool CurrentTool => _currentTool;
 
         /// <summary>
         /// 現在のペンの色を取得
@@ -1623,7 +1625,7 @@ namespace AnkiPlus_MAUI.Views
         public SKColor Color { get; set; }
         public float StrokeWidth { get; set; }
         public SKPaintStyle Style { get; set; }
-        public AnkiPlus_MAUI.Drawing.DrawingTool Tool { get; set; }
+        public DrawingTool Tool { get; set; }
 
         // JSONシリアライゼーション用
         public uint ColorValue

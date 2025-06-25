@@ -5,12 +5,12 @@ using System.IO.Compression;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
-using AnkiPlus_MAUI.Models;
+using Flashnote.Models;
 using System.Diagnostics;
 using SQLite;
 using System.Linq;
 
-namespace AnkiPlus_MAUI.Services
+namespace Flashnote.Services
 {
     public class AnkiImporter
     {
@@ -181,7 +181,7 @@ namespace AnkiPlus_MAUI.Services
                 var front = fields[0] ?? "";
                 var back = fields.Length > 1 ? (fields[1] ?? "") : "";
 
-                // HTMLタグを処理してAnkiPlus形式に変換
+                // HTMLタグを処理してFlashnote形式に変換
                 try
                 {
                     Debug.WriteLine($"HTML変換前 - Front: {front}");
@@ -479,7 +479,7 @@ namespace AnkiPlus_MAUI.Services
 
         private string GetClosestColorName(int r, int g, int b)
         {
-            // AnkiPlusで対応している基本色（Add.xaml.csと同じ）
+            // Flashnoteで対応している基本色（Add.xaml.csと同じ）
             var colors = new Dictionary<string, (int r, int g, int b)>
             {
                 {"red", (255, 0, 0)},
@@ -986,21 +986,21 @@ namespace AnkiPlus_MAUI.Services
                 // .ankplsファイルのパスを生成
                 string ankplsPath = Path.Combine(noteFolder, $"{noteName}.ankpls");
                 
-                // 一時展開パスをLocalAppData\AnkiPlus\{subfolder}\{notename}_tempに作成
-                string localAnkiPlusPath = Path.Combine(
+                // 一時展開パスをLocalAppData\Flashnote\{subfolder}\{notename}_tempに作成
+                string localFlashnotePath = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "AnkiPlus"
+                    "Flashnote"
                 );
                 
                 // noteFolderからサブフォルダ構造を取得
                 string documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-                string ankiPlusDocumentsPath = Path.Combine(documentsPath, "AnkiPlus");
+                string FlashnoteDocumentsPath = Path.Combine(documentsPath, "Flashnote");
                 
                 string subFolder = "";
-                if (noteFolder.StartsWith(ankiPlusDocumentsPath, StringComparison.OrdinalIgnoreCase))
+                if (noteFolder.StartsWith(FlashnoteDocumentsPath, StringComparison.OrdinalIgnoreCase))
                 {
-                    // Documents\AnkiPlus以下のサブフォルダを取得
-                    subFolder = Path.GetRelativePath(ankiPlusDocumentsPath, noteFolder);
+                    // Documents\Flashnote以下のサブフォルダを取得
+                    subFolder = Path.GetRelativePath(FlashnoteDocumentsPath, noteFolder);
                     if (subFolder == ".")
                     {
                         subFolder = ""; // ルートの場合は空文字
@@ -1011,19 +1011,19 @@ namespace AnkiPlus_MAUI.Services
                 string tempExtractPath;
                 if (string.IsNullOrEmpty(subFolder))
                 {
-                    tempExtractPath = Path.Combine(localAnkiPlusPath, $"{noteName}_temp");
+                    tempExtractPath = Path.Combine(localFlashnotePath, $"{noteName}_temp");
                 }
                 else
                 {
-                    tempExtractPath = Path.Combine(localAnkiPlusPath, subFolder, $"{noteName}_temp");
+                    tempExtractPath = Path.Combine(localFlashnotePath, subFolder, $"{noteName}_temp");
                 }
 
                 Debug.WriteLine($"=== SaveImportedCards 開始 ===");
                 Debug.WriteLine($"noteFolder: {noteFolder}");
                 Debug.WriteLine($"documentsPath: {documentsPath}");
-                Debug.WriteLine($"ankiPlusDocumentsPath: {ankiPlusDocumentsPath}");
+                Debug.WriteLine($"FlashnoteDocumentsPath: {FlashnoteDocumentsPath}");
                 Debug.WriteLine($"subFolder: '{subFolder}'");
-                Debug.WriteLine($"localAnkiPlusPath: {localAnkiPlusPath}");
+                Debug.WriteLine($"localFlashnotePath: {localFlashnotePath}");
                 Debug.WriteLine($"tempExtractPath: {tempExtractPath}");
                 Debug.WriteLine($"カード数: {cards.Count}");
 

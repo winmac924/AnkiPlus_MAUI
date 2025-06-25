@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace AnkiPlus_MAUI.Converters
+namespace Flashnote.Converters
 {
     public class InverseBoolConverter : IValueConverter
     {

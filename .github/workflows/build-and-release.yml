@@ -1,4 +1,4 @@
-name: Build and Release AnkiPlus MAUI
+name: Build and Release Flashnote MAUI
 
 on:
   push:
@@ -16,7 +16,7 @@ jobs:
     runs-on: windows-latest
     
     env:
-      PROJECT_PATH: 'AnkiPlus_MAUI.csproj'
+      PROJECT_PATH: 'Flashnote_MAUI.csproj'
       
     steps:
     - name: 📥 Checkout Repository
@@ -145,9 +145,9 @@ jobs:
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ steps.get_version.outputs.TAG_NAME }}
-        name: AnkiPlus MAUI ${{ steps.get_version.outputs.VERSION }}
+        name: Flashnote MAUI ${{ steps.get_version.outputs.VERSION }}
         body: |
-          ## 🚀 AnkiPlus MAUI ${{ steps.release_info.outputs.VERSION_INFO }}
+          ## 🚀 Flashnote MAUI ${{ steps.release_info.outputs.VERSION_INFO }}
           
           ### 📋 更新内容
           - 共有キーの機能を追加

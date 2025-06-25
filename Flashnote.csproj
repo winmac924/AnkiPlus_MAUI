@@ -13,7 +13,7 @@
 		<!-- For example: <RuntimeIdentifiers>maccatalyst-x64;maccatalyst-arm64</RuntimeIdentifiers> -->
 
 		<OutputType>Exe</OutputType>
-		<RootNamespace>AnkiPlus_MAUI</RootNamespace>
+		<RootNamespace>Flashnote</RootNamespace>
 		<UseMaui>true</UseMaui>
 		<SingleProject>true</SingleProject>
 		<ImplicitUsings>enable</ImplicitUsings>
@@ -21,10 +21,10 @@
 		<NoWarn>$(NoWarn);CS8767;CS8625;CS8612;CS0618;MSB3277;NU1701;CS8618;CS8622;CS8604;CS8602;CS8603;CS8600;CS8601;CS8619;CS8620;CS8605;CS1998;CS0612;CS0219;CS0169;CS0414</NoWarn>
 
 		<!-- Display name -->
-		<ApplicationTitle>AnkiPlus MAUI</ApplicationTitle>
+		<ApplicationTitle>Flashnote</ApplicationTitle>
 
 		<!-- App Identifier -->
-		<ApplicationId>com.ankiplus.maui</ApplicationId>
+		<ApplicationId>winmac924.flashnote.maui</ApplicationId>
 
 		<!-- Versions - 自動アップデート対応 -->
 		<ApplicationDisplayVersion>1.4.0</ApplicationDisplayVersion>
@@ -62,7 +62,7 @@
 
 	<ItemGroup>
 		<!-- App Icon -->
-		<MauiIcon Include="Resources\AppIcon\appicon.svg" ForegroundFile="Resources\AppIcon\appiconfg.svg" Color="#512BD4" />
+		<MauiIcon Include="Resources\AppIcon\appicon.svg" />
 
 		<!-- Splash Screen -->
 		<MauiSplashScreen Include="Resources\Splash\splash.svg" Color="#512BD4" BaseSize="128,128" />
@@ -73,6 +73,7 @@
 
 		<!-- Custom Fonts -->
 		<MauiFont Include="Resources\Fonts\*" />
+		<MauiFont Update="Resources\Fonts\FluentUI-Regular.ttf" LogicalName="FluentUI-Regular.ttf" />
 
 		<!-- Raw Assets (also remove the "Resources\Raw" prefix) -->
 		<MauiAsset Include="Resources\Raw\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
@@ -82,6 +83,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<PackageReference Include="AathifMahir.Maui.MauiIcons.Fluent" Version="4.0.0" />
 		<PackageReference Include="Azure.Storage.Blobs" Version="12.24.1" />
 		<PackageReference Include="FirebaseAdmin" Version="3.2.0" />
 		<PackageReference Include="FirebaseAuthentication.net" Version="4.1.0" />

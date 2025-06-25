@@ -1,6 +1,6 @@
 using SkiaSharp;
 
-namespace AnkiPlus_MAUI.Drawing
+namespace Flashnote.Drawing
 {
     public enum DrawingTool
     {

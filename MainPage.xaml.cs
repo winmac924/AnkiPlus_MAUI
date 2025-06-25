@@ -1,18 +1,25 @@
 ﻿using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.IO;
+using System.Reflection;
+using System.Windows.Input;
 using Microsoft.Maui.Controls;
+using Microsoft.Maui.Storage;
+using Flashnote.Services;
+using Flashnote.ViewModels;
+using Flashnote.Models;
 using System;
 using System.Threading.Tasks;
 using System.Linq;
 using System.Collections.Generic;
+using System.Text;
 using System.Diagnostics;
 using System.IO.Compression;
-using System.IO;
 using Firebase.Auth;
-using AnkiPlus_MAUI.Services;
-using AnkiPlus_MAUI.ViewModels;
-using Microsoft.Maui.Storage;
+using Microsoft.Maui.Controls.PlatformConfiguration.WindowsSpecific;
+using Microsoft.Maui.Controls.Xaml;
 
-namespace AnkiPlus_MAUI
+namespace Flashnote
 {
     public partial class MainPage : ContentPage
     {
@@ -21,9 +28,9 @@ namespace AnkiPlus_MAUI
         private const int PaddingSize = 10; // コレクションの左右余白
         private Note _selectedNote;
         private Stack<string> _currentPath = new Stack<string>();
-        // `C:\Users\ユーザー名\Documents\AnkiPlus` に保存
+        // `C:\Users\ユーザー名\Documents\Flashnote` に保存
         private static readonly string FolderPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "AnkiPlus");
+            Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Flashnote");
         private readonly CardSyncService _cardSyncService;
         private readonly UpdateNotificationService _updateService;
         private readonly BlobStorageService _blobStorageService;
@@ -31,6 +38,7 @@ namespace AnkiPlus_MAUI
         private readonly FileWatcherService _fileWatcherService;
         private bool _isSyncing = false;
         private MainPageViewModel _viewModel;
+        private bool _isImportDropdownAnimating = false;
 
         public MainPage(CardSyncService cardSyncService, UpdateNotificationService updateService, BlobStorageService blobStorageService, SharedKeyService sharedKeyService, FileWatcherService fileWatcherService)
         {
@@ -62,6 +70,11 @@ namespace AnkiPlus_MAUI
             {
                 NotesCollectionView.VerticalOptions = LayoutOptions.Start;
             }
+        }
+
+        protected override void OnAppearing()
+        {
+            base.OnAppearing();
         }
 
         private void SetupFileWatcher()
@@ -168,8 +181,6 @@ namespace AnkiPlus_MAUI
             }
         }
 
-
-
         // ノートを読み込む
         private void LoadNotes()
         {
@@ -234,7 +245,19 @@ namespace AnkiPlus_MAUI
             {
                 _viewModel.Notes.Add(item);
             }
+            
+            // ウェルカムメッセージの表示制御
+            UpdateWelcomeMessage();
         }
+
+        private void UpdateWelcomeMessage()
+        {
+            // ノートが1個以下（親フォルダの".."ボタンのみまたは空）の場合にウェルカムメッセージを表示
+            bool showWelcome = _viewModel.Notes.Count <= 1 && 
+                              (_viewModel.Notes.Count == 0 || _viewModel.Notes[0].Name == "..");
+            WelcomeFrame.IsVisible = showWelcome;
+        }
+
         // タップ時の処理（スタイラス or 指/マウス）
         private async void OnTapped(object sender, TappedEventArgs e)
         {
@@ -280,7 +303,7 @@ namespace AnkiPlus_MAUI
             }
         }
         // 新規ノート作成ボタンのクリックイベント
-        private async void OnCreateNewNoteClicked(object sender, EventArgs e)
+        private async Task OnCreateNewNoteClicked(object sender, EventArgs e)
         {
             string action = await DisplayActionSheet("新規作成", "キャンセル", null, "ノート", "フォルダ");
 
@@ -302,9 +325,78 @@ namespace AnkiPlus_MAUI
             }
         }
 
+        // フローティング・アクション・ボタン（FAB）のクリックイベント
+        private async void OnFabCreateClicked(object sender, EventArgs e)
+        {
+            // FABボタンのアニメーション
+            await FabCreateButton.ScaleTo(1.2, 100);
+            await FabCreateButton.ScaleTo(1.0, 100);
+            
+            // 既存の新規作成処理を呼び出し
+            await OnCreateNewNoteClicked(sender, e);
+        }
+
+        // インポートドロップダウンのクリックイベント
+        private async void OnImportDropdownClicked(object sender, EventArgs e)
+        {
+            if (_isImportDropdownAnimating) return;
+            _isImportDropdownAnimating = true;
+
+            try
+            {
+                if (!ImportDropdownFrame.IsVisible)
+                {
+                    // 表示する場合
+                    ImportDropdownFrame.Opacity = 0;
+                    ImportDropdownFrame.Scale = 0.8;
+                    ImportDropdownFrame.IsVisible = true;
+
+                    // ボタンのアニメーション
+                    await ImportDropdownButton.ScaleTo(0.95, 50);
+                    await ImportDropdownButton.ScaleTo(1.0, 50);
+
+                    // ドロップダウンのアニメーション
+                    await Task.WhenAll(
+                        ImportDropdownFrame.FadeTo(1, 200),
+                        ImportDropdownFrame.ScaleTo(1, 200)
+                    );
+
+                    // 3秒後に自動で非表示
+                    _ = Task.Delay(3000).ContinueWith(_ =>
+                    {
+                        MainThread.BeginInvokeOnMainThread(async () =>
+                        {
+                            if (ImportDropdownFrame.IsVisible)
+                            {
+                                await ImportDropdownFrame.FadeTo(0, 150);
+                                ImportDropdownFrame.IsVisible = false;
+                            }
+                        });
+                    });
+                }
+                else
+                {
+                    // 非表示にする場合
+                    await ImportDropdownFrame.FadeTo(0, 150);
+                    ImportDropdownFrame.IsVisible = false;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"インポートドロップダウンの表示中にエラー: {ex.Message}");
+            }
+            finally
+            {
+                _isImportDropdownAnimating = false;
+            }
+        }
+
         // Ankiインポートボタンのクリックイベント
         private async void OnAnkiImportClicked(object sender, EventArgs e)
         {
+            // ドロップダウンメニューを閉じる
+            ImportDropdownFrame.IsVisible = false;
+            
             try
             {
                 // APKGファイル選択
@@ -375,7 +467,7 @@ namespace AnkiPlus_MAUI
                 var tempFolder = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                     "Temp",
-                    "AnkiPlus",
+                    "Flashnote",
                     noteName + "_temp");
 
                 if (!Directory.Exists(tempFolder))
@@ -445,7 +537,7 @@ namespace AnkiPlus_MAUI
                     var tempFolder = Path.Combine(
                         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                         "Temp",
-                        "AnkiPlus",
+                        "Flashnote",
                         Path.GetFileNameWithoutExtension(ankplsFile) + "_temp");
 
                     // 一時フォルダが存在しない場合は作成
@@ -534,7 +626,7 @@ namespace AnkiPlus_MAUI
                         var tempFolder = Path.Combine(
                             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                             "Temp",
-                            "AnkiPlus",
+                            "Flashnote",
                             Path.GetFileNameWithoutExtension(ankplsFile) + "_temp");
 
                         Debug.WriteLine($"Checking temp folder: {tempFolder}");
@@ -635,20 +727,16 @@ namespace AnkiPlus_MAUI
             }
         }
 
-        private async void OnLogoutClicked(object sender, EventArgs e)
+        private async void OnSettingsClicked(object sender, EventArgs e)
         {
             try
             {
-                // ログイン情報を削除
-                await App.ClearLoginInfo();
-                App.CurrentUser = null;
-
-                // ログイン画面に戻る
-                await Shell.Current.GoToAsync("///LoginPage");
+                await Shell.Current.GoToAsync("///SettingsPage");
             }
             catch (Exception ex)
             {
-                await DisplayAlert("エラー", "ログアウト中にエラーが発生しました: " + ex.Message, "OK");
+                Debug.WriteLine($"設定画面への移動中にエラー: {ex.Message}");
+                await DisplayAlert("エラー", "設定画面の表示に失敗しました。", "OK");
             }
         }
 
@@ -657,6 +745,17 @@ namespace AnkiPlus_MAUI
             if (_isSyncing)
             {
                 await DisplayAlert("同期中", "現在同期処理を実行中です。完了までお待ちください。", "OK");
+                return;
+            }
+
+            // ログイン状態をチェック
+            if (App.CurrentUser == null)
+            {
+                bool result = await DisplayAlert("ログインが必要", "同期機能を使用するにはログインが必要です。設定画面でログインしますか？", "はい", "いいえ");
+                if (result)
+                {
+                    await Shell.Current.GoToAsync("///SettingsPage");
+                }
                 return;
             }
 
@@ -684,7 +783,7 @@ namespace AnkiPlus_MAUI
             catch (Exception ex)
             {
                 Debug.WriteLine($"同期中にエラー: {ex.Message}");
-                await DisplayAlert("同期エラー", "同期中にエラーが発生しました。", "OK");
+                await DisplayAlert("同期エラー", $"同期中にエラーが発生しました: {ex.Message}", "OK");
             }
             finally
             {
@@ -697,6 +796,9 @@ namespace AnkiPlus_MAUI
 
         private async void OnSharedKeyImportClicked(object sender, EventArgs e)
         {
+            // ドロップダウンメニューを閉じる
+            ImportDropdownFrame.IsVisible = false;
+            
             try
             {
                 var sharedKeyImportPage = new SharedKeyImportPage(_blobStorageService, _sharedKeyService, _cardSyncService);

@@ -1,8 +1,8 @@
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
-             x:Class="AnkiPlus_MAUI.Qa"
+             x:Class="Flashnote.Qa"
              xmlns:skia="clr-namespace:SkiaSharp.Views.Maui.Controls;assembly=SkiaSharp.Views.Maui.Controls"
-             Title="問題">
+             xmlns:local="clr-namespace:Flashnote">
 
     <ContentPage.Resources>
         <ResourceDictionary>
@@ -40,33 +40,33 @@
                     <VerticalStackLayout x:Name="BasicCardLayout"
                                          IsVisible="False"
                                          Spacing="10">
-                        <Frame Padding="0" HasShadow="False" CornerRadius="8">
+                        <Frame Padding="10" HasShadow="False" CornerRadius="8">
+                            <Frame.BackgroundColor>
+                                <AppThemeBinding Light="{StaticResource BackgroundLight}" 
+                                                Dark="{StaticResource BackgroundDark}" />
+                            </Frame.BackgroundColor>
                             <Frame.BorderColor>
                                 <AppThemeBinding Light="{StaticResource BorderLight}" 
                                                 Dark="{StaticResource BorderDark}" />
                             </Frame.BorderColor>
-                            <WebView x:Name="FrontPreviewWebView"
-                                     HeightRequest="250"/>
+                            <local:RichTextLabel x:Name="FrontPreviewLabel"
+                                                FontSize="16"
+                                                LineBreakMode="WordWrap"/>
                         </Frame>
-                        <Grid>
-                            <BoxView x:Name="AnswerLine"
-                                     HeightRequest="2"
-                                     HorizontalOptions="Fill">
-                                <BoxView.BackgroundColor>
-                                    <AppThemeBinding Light="{StaticResource BorderLight}" 
-                                                    Dark="{StaticResource BorderDark}" />
-                                </BoxView.BackgroundColor>
-                            </BoxView>
-                        </Grid>
-                        <Frame Padding="0" HasShadow="False" CornerRadius="8"
+                        <Frame Padding="10" HasShadow="False" CornerRadius="8"
                                x:Name="BackPreviewFrame"
                                IsVisible="False">
+                            <Frame.BackgroundColor>
+                                <AppThemeBinding Light="{StaticResource BackgroundLight}" 
+                                                Dark="{StaticResource BackgroundDark}" />
+                            </Frame.BackgroundColor>
                             <Frame.BorderColor>
                                 <AppThemeBinding Light="{StaticResource BorderLight}" 
                                                 Dark="{StaticResource BorderDark}" />
                             </Frame.BorderColor>
-                            <WebView x:Name="BackPreviewWebView"
-                                     HeightRequest="250"/>
+                            <local:RichTextLabel x:Name="BackPreviewLabel"
+                                                FontSize="16"
+                                                LineBreakMode="WordWrap"/>
                         </Frame>
                     </VerticalStackLayout>
 
@@ -74,24 +74,34 @@
                     <VerticalStackLayout x:Name="ChoiceCardLayout"
                                          IsVisible="False"
                                          Spacing="10">
-                        <Frame Padding="0" HasShadow="False" CornerRadius="8">
+                        <Frame Padding="10" HasShadow="False" CornerRadius="8">
+                            <Frame.BackgroundColor>
+                                <AppThemeBinding Light="{StaticResource BackgroundLight}" 
+                                                Dark="{StaticResource BackgroundDark}" />
+                            </Frame.BackgroundColor>
                             <Frame.BorderColor>
                                 <AppThemeBinding Light="{StaticResource BorderLight}" 
                                                 Dark="{StaticResource BorderDark}" />
                             </Frame.BorderColor>
-                            <WebView x:Name="ChoiceQuestionWebView"
-                                     HeightRequest="200"/>
+                            <local:RichTextLabel x:Name="ChoiceQuestionLabel"
+                                                FontSize="16"
+                                                LineBreakMode="WordWrap"/>
                         </Frame>
                         <VerticalStackLayout x:Name="ChoiceContainer" Spacing="5" Padding="10"/>
-                        <Frame Padding="0" HasShadow="False" CornerRadius="8"
+                        <Frame Padding="10" HasShadow="False" CornerRadius="8"
                                x:Name="ChoiceExplanationFrame"
                                IsVisible="False">
+                            <Frame.BackgroundColor>
+                                <AppThemeBinding Light="{StaticResource BackgroundLight}" 
+                                                Dark="{StaticResource BackgroundDark}" />
+                            </Frame.BackgroundColor>
                             <Frame.BorderColor>
                                 <AppThemeBinding Light="{StaticResource BorderLight}" 
                                                 Dark="{StaticResource BorderDark}" />
                             </Frame.BorderColor>
-                            <WebView x:Name="ChoiceExplanationWebView"
-                                     HeightRequest="200"/>
+                            <local:RichTextLabel x:Name="ChoiceExplanationLabel"
+                                                FontSize="16"
+                                                LineBreakMode="WordWrap"/>
                         </Frame>
                     </VerticalStackLayout>
 
@@ -142,6 +152,14 @@
                         HorizontalOptions="Center"
                         VerticalOptions="Center"
                         WidthRequest="120"/>
+
+                <Button x:Name="Correct"
+                        Text="正解"
+                        Clicked="OnCorrectClicked"
+                        IsVisible="False"
+                        WidthRequest="80"
+                        BackgroundColor="Green"
+                        TextColor="White"/>
                 <Grid IsVisible="False" x:Name="SeparatorGrid">
                     <BoxView HeightRequest="2"
                              WidthRequest="30"
@@ -151,14 +169,7 @@
                                             Dark="{StaticResource BorderDark}" />
                         </BoxView.BackgroundColor>
                     </BoxView>
-                </Grid>
-                <Button x:Name="Correct"
-                        Text="正解"
-                        Clicked="OnCorrectClicked"
-                        IsVisible="False"
-                        WidthRequest="80"
-                        BackgroundColor="Green"
-                        TextColor="White"/>
+                </Grid>                
                 <Button x:Name="Incorrect"
                         Text="不正解"
                         Clicked="OnIncorrectClicked"

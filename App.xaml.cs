@@ -4,9 +4,10 @@ using Firebase.Auth.Providers;
 using System.Diagnostics;
 using System.Threading.Tasks;
 using Azure.Storage.Blobs;
-using AnkiPlus_MAUI.Services;
+using Flashnote.Services;
+using Microsoft.Extensions.Logging;
 
-namespace AnkiPlus_MAUI
+namespace Flashnote
 {
     public partial class App : Application
     {
@@ -76,7 +77,8 @@ namespace AnkiPlus_MAUI
         private void InitializeMainPage()
         {
             MainPage = new AppShell();
-            _ = CheckSavedLoginAndUpdatesAsync();
+            // AppShellの初期化後に少し遅延してからMainPageに移動
+            _ = Task.Delay(200).ContinueWith(async _ => await CheckSavedLoginAndUpdatesAsync());
         }
 
         private void CleanupBackupFiles()
@@ -99,7 +101,7 @@ namespace AnkiPlus_MAUI
 
                 // 一時フォルダのアップデート関連ファイルもクリーンアップ
                 var tempPath = Path.GetTempPath();
-                var updateBatchFiles = Directory.GetFiles(tempPath, "AnkiPlus_Update*.bat");
+                var updateBatchFiles = Directory.GetFiles(tempPath, "Flashnote_Update*.bat");
                 foreach (var batchFile in updateBatchFiles)
                 {
                     try
@@ -136,20 +138,58 @@ namespace AnkiPlus_MAUI
         {
             try
             {
-                var email = await SecureStorage.GetAsync("user_email");
-                var password = await SecureStorage.GetAsync("user_password");
-
-                if (!string.IsNullOrEmpty(email) && !string.IsNullOrEmpty(password))
+                // 少し遅延してからShell.Currentにアクセス
+                await Task.Delay(100);
+                
+                // 保存されたログイン情報で自動ログインを試行
+                try
                 {
-                    var userCredential = await AuthClient.SignInWithEmailAndPasswordAsync(email, password);
-                    if (userCredential != null)
+                    var email = await SecureStorage.GetAsync("user_email");
+                    var password = await SecureStorage.GetAsync("user_password");
+
+                    if (!string.IsNullOrEmpty(email) && !string.IsNullOrEmpty(password))
                     {
-                        await MainThread.InvokeOnMainThreadAsync(() =>
+                        Debug.WriteLine("保存されたログイン情報でログインを試行します");
+                        var userCredential = await AuthClient.SignInWithEmailAndPasswordAsync(email, password);
+                        if (userCredential != null)
                         {
                             CurrentUser = userCredential.User;
-                            Shell.Current.GoToAsync("///MainPage");
-                        });
+                            Debug.WriteLine($"自動ログイン成功: {CurrentUser.Info.Email}");
+                        }
+                        else
+                        {
+                            Debug.WriteLine("自動ログイン失敗: ユーザー認証情報が無効");
+                        }
                     }
+                    else
+                    {
+                        Debug.WriteLine("保存されたログイン情報がありません");
+                    }
+                }
+                catch (Exception loginEx)
+                {
+                    Debug.WriteLine($"自動ログイン中にエラー: {loginEx.Message}");
+                    // 自動ログインに失敗しても続行
+                }
+
+                // Shell.Currentのnullチェックを追加
+                if (Shell.Current != null)
+                {
+                    await MainThread.InvokeOnMainThreadAsync(async () =>
+                    {
+                        try
+                        {
+                            await Shell.Current.GoToAsync("///MainPage");
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine($"Shell.Current.GoToAsyncでエラー: {ex.Message}");
+                        }
+                    });
+                }
+                else
+                {
+                    Debug.WriteLine("Shell.Currentがnullです。MainPageへの移動をスキップします。");
                 }
 
                 // 初回起動時のみ更新確認を実行
@@ -157,7 +197,7 @@ namespace AnkiPlus_MAUI
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"保存されたログイン情報の確認中にエラー: {ex.Message}");
+                Debug.WriteLine($"CheckSavedLoginAndUpdatesAsync中にエラー: {ex.Message}");
             }
         }
 

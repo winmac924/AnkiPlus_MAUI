@@ -1,21 +1,24 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
 using Microsoft.Maui.Controls;
+using Microsoft.Maui.Storage;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using System.Diagnostics;
+using Flashnote.Models;
+using Flashnote.Services;
+using System.Reflection;
 using SkiaSharp.Views.Maui;
 using SkiaSharp;
-using System;
-using System.Diagnostics;
-using System.IO;
 using System.IO.Compression;
-using System.Text.RegularExpressions;
-using System.Threading.Tasks;
 using System.Web;
 using SkiaSharp.Views.Maui.Controls;
 using Microsoft.Maui.ApplicationModel;
-using System.Text.Json;
-using AnkiPlus_MAUI.Models;
-using AnkiPlus_MAUI.Services;
-using System.Reflection;
 
-namespace AnkiPlus_MAUI
+namespace Flashnote
 {
     public partial class Add : ContentPage
     {
@@ -40,7 +43,7 @@ namespace AnkiPlus_MAUI
                     var tempDir = Path.GetDirectoryName(tempPath);
                     if (!string.IsNullOrEmpty(tempDir))
                     {
-                        var tempBasePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AnkiPlus");
+                        var tempBasePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Flashnote");
                         if (tempDir.StartsWith(tempBasePath))
                         {
                             var relativePath = Path.GetRelativePath(tempBasePath, tempDir);
